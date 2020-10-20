@@ -1,18 +1,3 @@
----
-title: "TestingGitHubAndDropbox"
-author: "Kelly Kapsar"
-date: "10/20/2020"
-output: html_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-
-*Information on using Google Drive as a repository for large and/or private data sets and accessing that data via R/GitHub can be found [here](https://googledrive.tidyverse.org/). 
-*
-```{r}
 # Check to see if sf package is installed and, if not, install it 
 list.of.packages <- c("sf", "ggplot2","googledrive")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -26,7 +11,6 @@ library(googledrive)
 # See above link for info on how to fill out
 
 drive_auth()
-drive_find(n_max = 30)
 
-```
-
+drive_download("https://drive.google.com/file/d/1LmNGwAdt1y_Pwb49hd6k99CDvVBe5250/view?usp=sharing", type = "csv")
+test <- read.csv("test.csv")
