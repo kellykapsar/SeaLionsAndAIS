@@ -1,0 +1,69 @@
+---
+title: "Covariate Data Processing"
+author: "Kelly Kapsar"
+date: "11/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries. 
+```{r}
+
+library(sf)
+library(raster)
+library(ggplot2)
+library(marmap)
+
+```
+
+Study area boundaries. 
+
+```{r}
+# Location of study area shape file on my computer
+study <- read_sf("../Data_Raw/DraftSeaLionAOI_Envelope_20kmBuff_6334.shp")
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>% st_buffer(0)
+
+# Projection information for NAT83/UTM Zone 5N (EPSG:6334)
+prj <- "+proj=utm +zone=5 +ellps=GRS80 +units=m +no_defs"
+
+# Crop basemap to buffered extent of study area 
+study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
+basemap.crop <- st_crop(basemap, study.buff)
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Get latlong coordinates for study area for use in downloading other data sets
+studylatlon <- study %>% st_transform(4269) %>% st_bbox()
+```
+
+
+## Bathymetry 
+
+Bathymetry data were collected from the [General Bathymetric Chart of the Oceans](gebco.net).  
+
+```{r bathymetry}
+
+bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
+
+plot(bathy)
+
+# 
+bathy <- raster::raster("../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif")
+
+
+projectRaster(bathy, bathyprj, res=res(bathy), crs=prj)
+projection(bathy)
+
+# Map of study area
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(bathy)
+  geom_sf(data=study, fill=NA, color="red")
+
+```
