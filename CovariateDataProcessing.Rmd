@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Import libraries. 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 library(sf)
 library(raster)
@@ -21,7 +21,7 @@ library(marmap)
 
 Study area boundaries. 
 
-```{r}
+```{r warning=FALSE}
 # Location of study area shape file on my computer
 study <- read_sf("../Data_Raw/DraftSeaLionAOI_Envelope_20kmBuff_6334.shp")
 basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>% st_buffer(0)
@@ -47,7 +47,7 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 Bathymetry data were collected from the [General Bathymetric Chart of the Oceans](gebco.net). You can use the marmap package to load the data and create a "bathy" object type, but I'm not sure exactly how to work with that kind of object, so I just imported the tif data and converted into a raster.    
 
-```{r bathymetry}
+```{r bathymetry, warning=FALSE}
 
 # bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
 

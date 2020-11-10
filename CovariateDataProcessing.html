@@ -370,24 +370,10 @@ summary {
 
 
 <p>Import libraries.</p>
-<pre class="r"><code>library(sf)</code></pre>
-<pre><code>## Linking to GEOS 3.8.0, GDAL 3.0.4, PROJ 6.3.1</code></pre>
-<pre class="r"><code>library(raster)</code></pre>
-<pre><code>## Loading required package: sp</code></pre>
-<pre class="r"><code>library(ggplot2)
+<pre class="r"><code>library(sf)
+library(raster)
+library(ggplot2)
 library(marmap)</code></pre>
-<pre><code>## Registered S3 methods overwritten by &#39;adehabitatMA&#39;:
-##   method                       from
-##   print.SpatialPixelsDataFrame sp  
-##   print.SpatialPixels          sp</code></pre>
-<pre><code>## 
-## Attaching package: &#39;marmap&#39;</code></pre>
-<pre><code>## The following object is masked from &#39;package:raster&#39;:
-## 
-##     as.raster</code></pre>
-<pre><code>## The following object is masked from &#39;package:grDevices&#39;:
-## 
-##     as.raster</code></pre>
 <p>Study area boundaries.</p>
 <pre class="r"><code># Location of study area shape file on my computer
 study &lt;- read_sf(&quot;../Data_Raw/DraftSeaLionAOI_Envelope_20kmBuff_6334.shp&quot;)
@@ -398,10 +384,9 @@ prj &lt;- &quot;+proj=utm +zone=5 +ellps=GRS80 +units=m +no_defs&quot;
 
 # Crop basemap to buffered extent of study area 
 study.buff &lt;- st_buffer(study, 100000) # Buffer study area by 100 km
-basemap.crop &lt;- st_crop(basemap, study.buff)</code></pre>
-<pre><code>## Warning: attribute variables are assumed to be spatially constant throughout all
-## geometries</code></pre>
-<pre class="r"><code># Map of study area 
+basemap.crop &lt;- st_crop(basemap, study.buff)
+
+# Map of study area 
 ggplot() +
   geom_sf(data=basemap.crop, fill=&quot;gray&quot;, color=&quot;black&quot;, lwd=0.5) +
   geom_sf(data=study, fill=NA, color=&quot;red&quot;)</code></pre>
@@ -414,32 +399,13 @@ studylatlon &lt;- study %&gt;% st_transform(4269) %&gt;% st_bbox()</code></pre>
 <pre class="r"><code># bathymarmap &lt;- marmap::readGEBCO.bathy(&quot;../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc&quot;)
 
 # Import raster, reproject to 4336, and crop to study area
-bathy &lt;- raster::raster(&quot;../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif&quot;) %&gt;% projectRaster(crs=prj) %&gt;% raster::crop(study)</code></pre>
-<pre><code>## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition</code></pre>
-<pre><code>## Warning in rgdal::rawTransform(projfrom, projto, nrow(xy), xy[, 1], xy[, : Using
-## PROJ not WKT2 strings</code></pre>
-<pre><code>## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition</code></pre>
-<pre><code>## Warning in rgdal::rawTransform(projection(obj), crs, nrow(xy), xy[, 1], : Using
-## PROJ not WKT2 strings</code></pre>
-<pre><code>## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition
+bathy &lt;- raster::raster(&quot;../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif&quot;) %&gt;% projectRaster(crs=prj) %&gt;% raster::crop(study)
 
-## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition
-
-## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition</code></pre>
-<pre><code>## Warning in rgdal::rawTransform(projto_int, projfrom, nrow(xy), xy[, 1], : Using
-## PROJ not WKT2 strings</code></pre>
-<pre><code>## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition
-
-## Warning in showSRID(uprojargs, format = &quot;PROJ&quot;, multiline = &quot;NO&quot;): Discarded
-## datum Unknown based on GRS80 ellipsoid in CRS definition</code></pre>
-<pre class="r"><code>bathyDf &lt;- as.data.frame(bathy, xy=TRUE) 
+bathyDf &lt;- as.data.frame(bathy, xy=TRUE) 
 colnames(bathyDf) &lt;- c(&quot;x&quot;,&quot;y&quot;,&quot;depth&quot;)
+
+# Save raster object 
+# raster::writeRaster(bathy, &quot;../Data_Processed/bathemtry_GEBCO_cropped_4336.tif&quot;)
 
 # Map of study area with bathymetric data 
 ggplot() +
