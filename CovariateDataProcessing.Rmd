@@ -45,25 +45,26 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 ## Bathymetry 
 
-Bathymetry data were collected from the [General Bathymetric Chart of the Oceans](gebco.net).  
+Bathymetry data were collected from the [General Bathymetric Chart of the Oceans](gebco.net). You can use the marmap package to load the data and create a "bathy" object type, but I'm not sure exactly how to work with that kind of object, so I just imported the tif data and converted into a raster.    
 
 ```{r bathymetry}
 
-bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
+# bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
 
-plot(bathy)
+# Import raster, reproject to 4336, and crop to study area
+bathy <- raster::raster("../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif") %>% projectRaster(crs=prj) %>% raster::crop(study)
 
-# 
-bathy <- raster::raster("../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif")
+bathyDf <- as.data.frame(bathy, xy=TRUE) 
+colnames(bathyDf) <- c("x","y","depth")
 
+# Save raster object 
+# raster::writeRaster(bathy, "../Data_Processed/bathemtry_GEBCO_cropped_4336.tif")
 
-projectRaster(bathy, bathyprj, res=res(bathy), crs=prj)
-projection(bathy)
-
-# Map of study area
+# Map of study area with bathymetric data 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(bathy)
+  geom_raster(data=bathyDf, aes(x=x, y=y, fill=depth), alpha=0.9) +
+  scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
 ```
