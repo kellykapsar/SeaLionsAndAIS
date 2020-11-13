@@ -16,6 +16,8 @@ library(sf)
 library(raster)
 library(ggplot2)
 library(marmap)
+library(ncdf4)
+library(anytime)
 
 ```
 
@@ -68,3 +70,96 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 
 ```
+
+## Sea Surface Temperature
+
+[OSTIA: Operational Sea Surface Temperature and Sea Ice Analysis](https://portal.aoos.org/gulf-of-alaska.php#module-metadata/e873784f-7201-416f-bb26-6061c82af388/adc56dd8-e6c6-4d09-abc6-86962fc308eb) from the Alaska Ocean Observing System. 
+
+Citation: 	UK Met Office. 2005. OSTIA L4 SST Analysis. Ver. 1.0. PO.DAAC, CA, USA. Dataset accessed [YYYY-MM-DD] at https://doi.org/10.5067/GHOST-4FK01
+
+Data requested from: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc/dataset.html
+Variables = analysed_sst, analysis_error, mask, sea_ice_fraction
+
+North = 61
+South = 55
+West = -156
+East = -147
+Start = 01 Nov 2018
+End = 31 May 2020
+
+NCSS Request URL: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc?var=analysed_sst&var=analysis_error&var=mask&var=sea_ice_fraction&north=61&west=-156&east=-147&south=55&horizStride=1&time_start=2018-11-01T12%3A00%3A00Z&time_end=2020-05-31T12%3A00%3A00Z&timeStride=1&accept=netcdf
+
+```{r sea surface temperature}
+
+# Open netcdf file 
+sst <- nc_open("../Data_Raw/AOOS_OSTIA.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/AOOS_OSTIA.txt')
+  print(sst)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(sst, "lon")
+lat <- ncvar_get(sst, "lat", verbose = F)
+t <- ncvar_get(sst, "time")
+
+head(lon)
+
+# Read in data from the SST variable and verify the dimensions of the array
+sst.array <- ncvar_get(sst, "analysed_sst") # 3dim array
+dim(sst.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(sst, "analysed_sst","_FillValue")
+fillvalue
+
+sst.array[sst.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(sst)
+
+# Isolate and plot a random time step to check 
+sst.slice <- sst.array[,,1]
+
+dim(sst.slice) #2dim
+
+sst.r <- raster(t(sst.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website 
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>% 
+         flip(direction="y") %>% 
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+sst.df <- as.data.frame(sst.r, xy=TRUE)
+colnames(sst.df) <- c("x","y","sst")
+
+plot(sst.r)
+
+# Map of study area with sst data 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=sst.df, aes(x=x, y=y, fill=sst), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Make a raster brick of all values 
+sst_brick <- brick(sst.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), 
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+
+sst_brick <- flip(t(sst_brick), direction='y')
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t <- anydate(t)
+
+# Name raster layers after the date that they portray
+names(sst_brick) <- as.character(t)
+
+dim(sst_brick)
+
+sst_brick
+
+
+```
+
