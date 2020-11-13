@@ -146,9 +146,10 @@ ggplot() +
 
 # Make a raster brick of all values 
 sst_brick <- brick(sst.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), 
-                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
-
-sst_brick <- flip(t(sst_brick), direction='y')
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>% 
+         flip(direction="y") %>% 
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t <- anydate(t)
@@ -156,9 +157,9 @@ t <- anydate(t)
 # Name raster layers after the date that they portray
 names(sst_brick) <- as.character(t)
 
-dim(sst_brick)
+# Save output file
+writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
 
-sst_brick
 
 
 ```
