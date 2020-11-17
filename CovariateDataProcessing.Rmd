@@ -18,6 +18,7 @@ library(ggplot2)
 library(marmap)
 library(ncdf4)
 library(anytime)
+library(googledrive)
 
 ```
 
@@ -43,6 +44,51 @@ ggplot() +
 # Get latlong coordinates for study area for use in downloading other data sets
 studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 ```
+
+## Sea Lion location geodatabase
+
+```{r}
+# Import sea lion location geodatabase (downloaded from Google Drive folder)
+seali <- st_layers("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb")
+seali$name # list of layers 
+
+# Determine all layers of interest within gdb 
+lyrs <- grep("_locs_dives", seali$name)
+
+# Create initial sf object with data from one sea lion 
+sealis <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+                    layer=seali$name[lyrs[1]])
+
+# Remove that layer from the layers of interest list
+lyrs <- lyrs[2:length(lyrs)]
+
+# Append all other layers of interest onto the main location data set 
+for(i in lyrs){
+  temp <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+                    layer=seali$name[i])
+  sealis <- rbind(sealis, temp)
+}
+
+# Remove points outside the study area
+sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
+sealis <- sealis[which(sealis$inbounds == TRUE),]
+
+############ CHECK ON THIS ###############
+# 40 Duplicated rows (excluding geometry column)
+test <- duplicated(data.frame(sealis))
+# Remove duplicated rows 
+sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
+
+# Transform geometry to correct projection 
+st_geometry(sealis) <- st_transform(st_geometry(sealis),prj)
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")+
+  geom_sf(data=sealis, aes(color=inbounds))
+
+``` 
 
 
 ## Bathymetry 
@@ -158,9 +204,10 @@ t <- anydate(t)
 names(sst_brick) <- as.character(t)
 
 # Save output file
-writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
+# writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
 
-
+# ADD sea lion location data
+# Compare SST at sea lion locations with tag-derived temperature
 
 ```
 
