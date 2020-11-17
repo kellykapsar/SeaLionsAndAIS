@@ -158,9 +158,9 @@ t <- anydate(t)
 names(sst_brick) <- as.character(t)
 
 # Save output file
-writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
+# writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
 
-
+# ADD sea lion location data
 
 ```
 
