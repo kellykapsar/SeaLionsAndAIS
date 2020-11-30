@@ -9,8 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-test
-
 Import libraries. 
 ```{r message=FALSE, warning=FALSE}
 
