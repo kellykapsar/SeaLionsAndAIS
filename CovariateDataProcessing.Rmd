@@ -58,6 +58,11 @@ lyrs <- grep("_locs_dives", seali$name)
 sealis <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
                     layer=seali$name[lyrs[1]])
 
+seali785loc <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+                    layer=seali$name[17])
+seali785loc <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+                    layer=seali$name[17])
+
 # Remove that layer from the layers of interest list
 lyrs <- lyrs[2:length(lyrs)]
 
@@ -227,12 +232,13 @@ I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.o
 
 For calculating monthly mean values in a [raster brick](https://gis.stackexchange.com/questions/237272/mean-by-month-on-r-stacked-raster). 
 
-```{r merging sea lion locs with SST data}
+```{r merging sea lion locs with SST data, warnings=F, messages=F}
 
 # Put seali date into same format as raster brick names
 sealis$yearmon <- format(sealis$Date_, format="%Y%m")
 
 # Extract monghtly average values for SST at seali locs
+# Want to look into using an apply function to hopefullymake this go faster (it takes ~5 min right now)
 for(i in 1:length(sealis$DeployID)){
   if(i %% 100 == 0){
     print(i)
@@ -250,6 +256,23 @@ length(unique(sealis$SST))
 # # SST over time at a particular location 
 # idx <- match('Aug.13.2019', names(sst_brick))
 # plot(sst_brick[[idx]])
+
+```
+```{r extra fun stuff}
+# Correlation between dive temperature and 
+sealitemps <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+                    layer=seali$name[10]) %>% st_transform(prj)
+
+# Extract monghtly average values for SST at seali locs
+# Want to look into using an apply function to hopefullymake this go faster (it takes ~5 min right now)
+for(i in 1:length(sealitemps$DeployID)){
+  if(i %% 100 == 0){
+    print(i)
+  }
+   sealitemps$SST[i] <- extract(subset(sst_month, 
+                                   paste0("index_",sealitemps$yearmon[i])), sealis[i,])
+}
+
 
 ```
 
