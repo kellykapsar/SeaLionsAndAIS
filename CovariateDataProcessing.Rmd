@@ -165,16 +165,16 @@ sst.array[sst.array == fillvalue$value] <- NA
 # Close netcdf file
 nc_close(sst)
 
-# Isolate and plot a random time step to check 
+# Isolate and plot a random time step to check
 sst.slice <- sst.array[,,1]
 
 dim(sst.slice) #2dim
 
 sst.r <- raster(t(sst.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
-                # Found projection on the website 
-                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>% 
-         flip(direction="y") %>% 
-         raster::projectRaster(crs=prj) %>% 
+                # Found projection on the website
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>%
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>%
          raster::crop(study)
 
 sst.df <- as.data.frame(sst.r, xy=TRUE)
@@ -182,7 +182,7 @@ colnames(sst.df) <- c("x","y","sst")
 
 plot(sst.r)
 
-# Map of study area with sst data 
+# Map of study area with sst data
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_raster(data=sst.df, aes(x=x, y=y, fill=sst), alpha=0.9) +
@@ -190,20 +190,66 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 
 # Make a raster brick of all values 
-sst_brick <- brick(sst.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), 
-                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")) %>% 
-         flip(direction="y") %>% 
+sst_brick <- brick(sst.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) %>% 
+         flip(direction="x") %>%
          raster::projectRaster(crs=prj) %>% 
          raster::crop(study)
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t <- anydate(t)
-
+class(t)
 # Name raster layers after the date that they portray
-names(sst_brick) <- as.character(t)
+names(sst_brick) <- format(t, "X%Y.%m.%d")
 
 # Save output file
 # writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
+
+# Fun animation of the raster brick
+# animate(sst_brick, pause=0.5, n=1)
+
+# Calculate the change between any two layers
+# tempchange <- sst_brick[[2]]-sst_brick[[1]]
+# tempchange
+
+# Calculate mean monthly SST rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(sst_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+sst_month <- stackApply(sst_brick, indices, fun = mean)
+#animate(sst_month, pause=0.5, n=1)
+
+```
+I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.org/raster-time-series-alaska-lesson/index.html#/slides/brick)
+
+For calculating monthly mean values in a [raster brick](https://gis.stackexchange.com/questions/237272/mean-by-month-on-r-stacked-raster). 
+
+```{r merging sea lion locs with SST data}
+
+# Put seali date into same format as raster brick names
+sealis$yearmon <- format(sealis$Date_, format="%Y%m")
+
+# Extract monghtly average values for SST at seali locs
+for(i in 1:length(sealis$DeployID)){
+  if(i %% 100 == 0){
+    print(i)
+  }
+   sealis$SST[i] <- extract(subset(sst_month, 
+                                   paste0("index_",sealis$yearmon[i])), sealis[i,])
+}
+
+# Looking at the data 
+hist(sealis$SST)
+length(which(is.na(sealis$SST)))
+length(unique(sealis$SST))
+
+
+# # SST over time at a particular location 
+# idx <- match('Aug.13.2019', names(sst_brick))
+# plot(sst_brick[[idx]])
 
 ```
 
