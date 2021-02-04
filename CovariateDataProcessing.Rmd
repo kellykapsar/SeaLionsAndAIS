@@ -48,28 +48,24 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 ```{r sea lion gdb processing}
 # Import sea lion location geodatabase (downloaded from Google Drive folder)
-seali <- st_layers("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb")
+seali <- st_layers("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb")
 seali$name # list of layers 
 
 # Determine all layers of interest within gdb 
-lyrs <- grep("_locs_dives", seali$name)
+lyrs <- grep("_loc", seali$name)
 
-# Create initial sf object with data from one sea lion 
-sealis <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
+# Create initial sf object with data from one sea lion
+sealis <- st_read("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb",
                     layer=seali$name[lyrs[1]])
-
-seali785loc <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
-                    layer=seali$name[17])
-seali785loc <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
-                    layer=seali$name[17])
 
 # Remove that layer from the layers of interest list
 lyrs <- lyrs[2:length(lyrs)]
 
 # Append all other layers of interest onto the main location data set 
-for(i in lyrs){
-  temp <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
-                    layer=seali$name[i])
+for(i in 1:length(lyrs)){
+  temp <- st_read("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb",
+                    layer=seali$name[lyrs[i]])
+  colnames(temp) <- colnames(sealis)
   sealis <- rbind(sealis, temp)
 }
 
@@ -225,7 +221,7 @@ indices <- as.numeric(indices)
 
 #sum layers
 sst_month <- stackApply(sst_brick, indices, fun = mean)
-#animate(sst_month, pause=0.5, n=1)
+# animate(sst_month, pause=0.5, n=1)
 
 ```
 I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.org/raster-time-series-alaska-lesson/index.html#/slides/brick)
@@ -251,15 +247,46 @@ for(i in 1:length(sealis$DeployID)){
 hist(sealis$SST)
 length(which(is.na(sealis$SST)))
 length(unique(sealis$SST))
+length(sealis$SST)
+tail(sealis$SST)
 
+hist(as.numeric(sealis$yearmon))
+unique(sealis$yearmon)
+unique(sealis$DeployID)
 
 # # SST over time at a particular location 
 # idx <- match('Aug.13.2019', names(sst_brick))
 # plot(sst_brick[[idx]])
 
 ```
+
+Weather data from [AOOS](https://gulf-of-alaska.portal.aoos.org/#search/advanced?type_group=sensor_stations&query=weather&mapBounds=-155%2C56%2C-148%2C60&time=2018-11-07T06%3A00%3A00Z%2C2020-05-03T04%3A59%3A59Z&page=1) with a spatial  and time-filtered search. Will probably have to spatially interpolate across the study area? 
+
+Led me to [ERDDAP](http://erddap.aoos.org/erddap/tabledap/index.html?page=1&itemsPerPage=1000), which has all information from weather stations within the study area, but does not appear to include precipitation information? 
+
+Weather stations in study area: 
+* Kodiak Gull Island
+* Homer Spit
+* Homer Airport
+* Iliamna Airport
+* Kodiak Airport
+* Bradley River near Homer
+* Battle Creek near Homer
+* Anchor River at Anchor Point
+* Anchor River at New Sterling Hwy
+* Seldovia
+
+[National Buoy Data Center](https://www.ndbc.noaa.gov/) has a few buoys in the study area that have information on wave height as well as wind speed. 
+
+[Map of buoys in study area.](https://www.ndbc.noaa.gov/obs.shtml?lat=57.550214&lon=-155.683594&zoom=5&type=oceans&status=r&pgm=&op=&ls=n) 
+```{r weather data}
+
+
+```
+
+
 ```{r extra fun stuff}
-# Correlation between dive temperature and 
+# Correlation between dive temperature and ste
 sealitemps <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
                     layer=seali$name[10]) %>% st_transform(prj)
 
