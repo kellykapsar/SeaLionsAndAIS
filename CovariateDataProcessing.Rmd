@@ -43,6 +43,57 @@ ggplot() +
 # Get latlong coordinates for study area for use in downloading other data sets
 studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 ```
+# Add 1 km land mask layer
+```{r land mask}
+# Open netcdf file 
+landmask <- nc_open("../Data_Raw/arc/base/analysis_masks/kod_mask_1k_u5w84.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/arc/base/analysis_masks/kod_mask_1k_u5w84.txt')
+  print(landmask)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(landmask, "x")
+lat <- ncvar_get(landmask, "y", verbose = F)
+
+head(lon)
+
+# Read in data from the SST variable and verify the dimensions of the array
+landmask.array <- ncvar_get(landmask, "kod_mask_1k_u5w84") # 3dim array
+dim(landmask.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(landmask, "kod_mask_1k_u5w84","missing_value")
+fillvalue
+
+landmask.array[landmask.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(landmask)
+
+# Create raster of landmask
+landmask.r <- raster(t(landmask.array), 
+                xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # CRS from metadata
+                crs=CRS("+proj=utm +zone=5 +datum=WGS84 +units=m +no_defs")) 
+
+landmask.df <- as.data.frame(landmask.r, xy=TRUE)
+colnames(landmask.df) <- c("x","y","water")
+
+plot(landmask.r)
+
+# Map of study area with landmask data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=landmask.df, aes(x=x, y=y, fill=water), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
+```
+
 
 ## Sea Lion location geodatabase
 
