@@ -43,7 +43,9 @@ ggplot() +
 # Get latlong coordinates for study area for use in downloading other data sets
 studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 ```
-# Add 1 km land mask layer
+
+1 km land mask layer. 
+
 ```{r land mask}
 # Open netcdf file 
 landmask <- nc_open("../Data_Raw/arc/base/analysis_masks/kod_mask_1k_u5w84.nc")
@@ -91,9 +93,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-
 ```
-
 
 ## Sea Lion location geodatabase
 
@@ -137,7 +137,7 @@ st_geometry(sealis) <- st_transform(st_geometry(sealis),prj)
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_sf(data=study, fill=NA, color="red")+
-  geom_sf(data=sealis, aes(color=DurationMax))
+  geom_sf(data=sealis)
 
 ``` 
 
@@ -166,6 +166,100 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+```
+## Wind Speed 
+
+Wind speed data from the Copernicus Marine Service (Met-Op A and B satellites).
+
+Data set name: [GLOBAL OCEAN WIND L4 NEAR REAL TIME 6 HOURLY OBSERVATIONS](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=WIND_GLO_WIND_L4_NRT_OBSERVATIONS_012_004). 
+
+```{r wind speed}
+
+# Open netcdf file 
+wind <- nc_open("../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1612900944654.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1612900944654.txt')
+  print(wind)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(wind, "lon")
+lat <- ncvar_get(wind, "lat", verbose = F)
+t <- ncvar_get(wind, "time")
+
+head(lon)
+
+# Read in data from the wind variable and verify the dimensions of the array
+wind.array <- ncvar_get(wind, "wind_speed") # 3dim array
+dim(wind.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(wind, "wind_speed","_FillValue")
+fillvalue
+
+wind.array[wind.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(wind)
+
+# Isolate and plot a random time step to check
+wind.slice <- wind.array[,,1]
+
+dim(wind.slice) #2dim
+
+wind.r <- raster(t(wind.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
+         flip(direction="y")%>%
+         raster::projectRaster(crs=prj)
+
+wind.df <- as.data.frame(wind.r, xy=TRUE)
+colnames(wind.df) <- c("x","y","windspeed")
+
+plot(wind.r)
+
+
+# Map of study area with wind data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=wind.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Make a raster brick of all values 
+wind_brick <- brick(wind.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="x") %>%
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="hours")
+class(t2)
+# Name raster layers after the date that they portray
+names(wind_brick) <-t2
+
+# Save output file
+# writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif")
+
+# Fun animation of the raster brick
+# animate(wind_brick, pause=0.5, n=1)
+
+# Calculate the change between any two layers
+# windchange <- wind_brick[[2]]-wind_brick[[1]]
+# windchange
+
+# Calculate mean monthly wind rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(wind_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+wind_month <- stackApply(wind_brick, indices, fun = mean)
+# animate(wind_month, pause=0.5, n=1)
 ```
 
 ## Sea Surface Temperature
@@ -308,30 +402,6 @@ unique(sealis$DeployID)
 # # SST over time at a particular location 
 # idx <- match('Aug.13.2019', names(sst_brick))
 # plot(sst_brick[[idx]])
-
-```
-
-Weather data from [AOOS](https://gulf-of-alaska.portal.aoos.org/#search/advanced?type_group=sensor_stations&query=weather&mapBounds=-155%2C56%2C-148%2C60&time=2018-11-07T06%3A00%3A00Z%2C2020-05-03T04%3A59%3A59Z&page=1) with a spatial  and time-filtered search. Will probably have to spatially interpolate across the study area? 
-
-Led me to [ERDDAP](http://erddap.aoos.org/erddap/tabledap/index.html?page=1&itemsPerPage=1000), which has all information from weather stations within the study area, but does not appear to include precipitation information? 
-
-Weather stations in study area: 
-* Kodiak Gull Island
-* Homer Spit
-* Homer Airport
-* Iliamna Airport
-* Kodiak Airport
-* Bradley River near Homer
-* Battle Creek near Homer
-* Anchor River at Anchor Point
-* Anchor River at New Sterling Hwy
-* Seldovia
-
-[National Buoy Data Center](https://www.ndbc.noaa.gov/) has a few buoys in the study area that have information on wave height as well as wind speed. 
-
-[Map of buoys in study area.](https://www.ndbc.noaa.gov/obs.shtml?lat=57.550214&lon=-155.683594&zoom=5&type=oceans&status=r&pgm=&op=&ls=n) 
-```{r weather data}
-
 
 ```
 
