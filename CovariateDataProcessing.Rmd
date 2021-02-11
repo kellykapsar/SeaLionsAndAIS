@@ -18,6 +18,7 @@ library(ggplot2)
 library(marmap)
 library(ncdf4)
 library(anytime)
+library(rgdal)
 
 ```
 
@@ -260,6 +261,68 @@ indices <- as.numeric(indices)
 #sum layers
 wind_month <- stackApply(wind_brick, indices, fun = mean)
 # animate(wind_month, pause=0.5, n=1)
+
+# Save output file
+writeRaster(wind_month, "../Data_Processed/WIND_Monthly_cropped_4336.nc", 
+              overwrite=TRUE, format="CDF",     
+              varname="wind_speed", varunit="m/s", 
+              longname="Wind Speed -- raster brick to netCDF", 
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
+```
+
+Test to make sure that the netcdf file saved correctly. 
+
+```{r testing netcdf file save}
+
+test <-nc_open("../Data_Processed/WIND_Monthly_cropped_4336.nc")
+
+# Save metadata to a text file
+{
+  sink('../Data_Processed/WIND_Monthly_cropped_4336.txt')
+  print(test)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(test, "lon")
+lat <- ncvar_get(test, "lat", verbose = F)
+t <- ncvar_get(test, "time")
+
+head(lon)
+
+# Read in data from the wind variable and verify the dimensions of the array
+test.array <- ncvar_get(test, "wind_speed") # 3dim array
+dim(test.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(test, "wind_speed","_FillValue")
+fillvalue
+
+test.array[test.array == fillvalue$value] <- NA
+
+nc_close(test)
+
+test_brick <- brick(test.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS(prj)) 
+
+plot(test_brick[[1]])
+
+
+test.df <- as.data.frame(test_brick[[1]], xy=TRUE)
+colnames(test.df) <- c("x","y","windspeed")
+
+plot(test.r)
+
+
+# Map of study area with wind data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=test.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
 ```
 
 ## Sea Surface Temperature
