@@ -138,7 +138,7 @@ st_geometry(sealis) <- st_transform(st_geometry(sealis),prj)
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_sf(data=study, fill=NA, color="red")+
-  geom_sf(data=sealis)
+  geom_sf(data=sealis, aes(color=DeployID))
 
 ``` 
 
@@ -248,10 +248,6 @@ names(wind_brick) <-t2
 # Fun animation of the raster brick
 # animate(wind_brick, pause=0.5, n=1)
 
-# Calculate the change between any two layers
-# windchange <- wind_brick[[2]]-wind_brick[[1]]
-# windchange
-
 # Calculate mean monthly wind rasters 
 
 #get the date from the names of the layers and extract the month
@@ -262,13 +258,24 @@ indices <- as.numeric(indices)
 wind_month <- stackApply(wind_brick, indices, fun = mean)
 # animate(wind_month, pause=0.5, n=1)
 
+# plot monthly average wind data for November, 2018
+windmonth.df <- as.data.frame(wind_month[[1]], xy=TRUE)
+colnames(windmonth.df) <- c("x","y","windspeed")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=windmonth.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
 # Save output file
-writeRaster(wind_month, "../Data_Processed/WIND_Monthly_cropped_4336.nc", 
-              overwrite=TRUE, format="CDF",     
-              varname="wind_speed", varunit="m/s", 
-              longname="Wind Speed -- raster brick to netCDF", 
-              xname="lon",   yname="lat",zname="time",
-              zunit="numeric")
+# writeRaster(wind_month, "../Data_Processed/WIND_Monthly_cropped_4336.nc", 
+#               overwrite=TRUE, format="CDF",     
+#               varname="wind_speed", varunit="m/s", 
+#               longname="Wind Speed -- raster brick to netCDF", 
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
 ```
 
 Test to make sure that the netcdf file saved correctly. 
