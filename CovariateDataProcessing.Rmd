@@ -63,7 +63,7 @@ lat <- ncvar_get(landmask, "y", verbose = F)
 
 head(lon)
 
-# Read in data from the SST variable and verify the dimensions of the array
+# Read in data from the variable and verify the dimensions of the array
 landmask.array <- ncvar_get(landmask, "kod_mask_1k_u5w84") # 3dim array
 dim(landmask.array)
 
@@ -91,6 +91,24 @@ plot(landmask.r)
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_raster(data=landmask.df, aes(x=x, y=y, fill=water), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+```
+
+1 km grid of distance to land (in m) 
+
+```{r dist2land}
+# Calculate distance to nearest NA cell for all cells in landmask raster 
+distland <- landmask.r
+values(distland)[values(distland) == 1] = NA
+distland <- raster::distance(distland)
+
+distland.df <- as.data.frame(distland, xy=TRUE)
+colnames(distland.df) <- c("x","y","distland")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=distland.df, aes(x=x, y=y, fill=distland), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
@@ -141,6 +159,28 @@ ggplot() +
   geom_sf(data=sealis, aes(color=DeployID))
 
 ``` 
+
+## AIS Data
+```{r bathymetry, warning=FALSE}
+
+# Import raster, reproject to 4336, and crop to study area
+ships <- raster::raster("../Data_Processed/AIS/AISRasterSubset_2018-11-Cargo_5000m.tif", crs="+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") 
+
+shipsDf <- as.data.frame(ships, xy=TRUE) 
+colnames(shipsDf) <- c("x","y","km")
+
+# Save raster object 
+# raster::writeRaster(bathy, "../Data_Processed/bathemtry_GEBCO_cropped_4336.tif")
+
+# Map of study area with bathymetric data 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=shipsDf, aes(x=x, y=y, fill=km), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+```
+
 
 
 ## Bathymetry 
