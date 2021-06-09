@@ -96,25 +96,6 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 ```
 
-1 km grid of distance to land (in m).  
-
-```{r dist2land}
-# Calculate distance to nearest NA cell for all cells in landmask raster 
-distland <- landmask.r
-values(distland)[values(distland) == 1] = NA
-distland <- raster::distance(distland)
-
-distland.df <- as.data.frame(distland, xy=TRUE)
-colnames(distland.df) <- c("x","y","distland")
-
-ggplot() +
-  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=distland.df, aes(x=x, y=y, fill=distland), alpha=0.9) +
-  scale_fill_gradient2() +
-  geom_sf(data=study, fill=NA, color="red")
-
-```
-
 ## Sea Lion location geodatabase
 
 ```{r sea lion gdb processing}
@@ -162,7 +143,7 @@ ggplot() +
 ``` 
 
 ## AIS Data
-```{r bathymetry, warning=FALSE}
+```{r ais, warning=FALSE}
 
 # Import raster, reproject to 4336, and crop to study area
 ships <- raster::raster("../Data_Processed/AIS/AISRasterSubset_2018-11-Cargo_5000m.tif", crs="+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") 
@@ -229,7 +210,7 @@ ggplot() +
 
 ```
 
-Calculate distance to 200m depth isobath 
+Calculate distance to land 
 
 ```{r dist2isobath}
 # ESTIMATED COORDINATES --- WILL NEED TO UPDATE
@@ -253,32 +234,37 @@ plot(depth, n = 1, lwd = 0.4, add = TRUE)
 trsect <- get.transect(depth, -155, 58, -148, 58, distance = TRUE)
 plotProfile(trsect)
 
-# Convert raster centroids from water cells to lat/long coordinates 
-landmask.coords <- landmask.df %>% filter(water==1) %>% st_as_sf(coords=c("x","y"), crs=6334) %>% 
-  st_transform(4326) %>% 
-  st_coordinates() %>% 
-  as.data.frame()
 
-# Compute distances between each point and the nearest location
-# along the coastline
-system.time(dland <- dist2isobath(depth, landmask.coords$X[1:10], landmask.coords$Y[1:10], isobath = 0))
-system.time(d500m <- dist2isobath(depth, landmask.coords$X, landmask.coords$Y, isobath = -500))
+# Calculate distance to nearest NA cell for all cells in landmask raster 
+distland2 <- bathy
+values(distland2)[values(distland2) <= 0] = NA
+distland2 <- raster::distance(distland2)
 
-# Add back in land data 
-system.time(test <- left_join(landmask.df, dland, by=c("x","y")))
+distland2.df <- as.data.frame(distland2, xy=TRUE)
+colnames(distland2.df) <- c("x","y","distland")
 
-# Plot the bathymetry
-plot(depth, image = TRUE, lwd = 0.1, land = TRUE,
-bpal = list(c(0, max(depth), "grey"), c(min(depth), 0, blues)))
-# Make the coastline more visible
-plot(depth, deep = 0, shallow = 0, step = 0, lwd = 0.6, add = TRUE)
-# Add 10 random points from within study area 
-pts <- sample(1:length(landmask.coords$X),10,replace=F)
-points(landmask.coords$X[pts], landmask.coords$Y[pts], pch = 21, bg = "orange2", cex = 0.8)
-# Add great circle lines
-linesGC(d200m[, 2:3], d200m[, 4:5])
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=distland2.df, aes(x=x, y=y, fill=distland), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+```
 
+Calculate distance to nearest cell between 400 and 500 m depth. 
 
+```{r 500m shelf break}
+dist500m <- bathy
+values(dist500m)[values(dist500m) >= -400 | values(dist500m) <= -500] = NA
+dist500m <- raster::distance(dist500m)
+
+dist500m.df <- as.data.frame(dist500m, xy=TRUE)
+colnames(dist500m.df) <- c("x","y","dist500m")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=dist500m.df, aes(x=x, y=y, fill=dist500m), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
 
 ```
 
