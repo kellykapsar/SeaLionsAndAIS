@@ -25,7 +25,7 @@ library(rgdal)
 
 Study area boundaries. 
 
-```{r warning=FALSE}
+```{r study area warning=FALSE}
 # Location of study area shape file on my computer
 study <- read_sf("../Data_Raw/DraftSeaLionAOI_Envelope_20kmBuff_6334.shp")
 basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>% st_buffer(0)
@@ -189,6 +189,7 @@ ggplot() +
 
 ```
 
+## Slope
 
 ```{r slope}
 
@@ -210,9 +211,9 @@ ggplot() +
 
 ```
 
-Calculate distance to land 
+## Distance to land 
 
-```{r dist2isobath}
+```{r dist2land}
 # ESTIMATED COORDINATES --- WILL NEED TO UPDATE
 # Get depth data from NOAA 
 depth <- getNOAA.bathy(lat1=55, lat2=61, lon1=-146, lon2=-156, resolution = 1)
@@ -250,6 +251,8 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 ```
 
+## Distance to shelf break
+
 Calculate distance to nearest cell between 400 and 500 m depth. 
 
 ```{r 500m shelf break}
@@ -265,6 +268,17 @@ ggplot() +
   geom_raster(data=dist500m.df, aes(x=x, y=y, fill=dist500m), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
+
+```
+
+## Sea Surface Height
+
+Source: [GLOBAL OCEAN 1/4° PHYSICS ANALYSIS AND FORECAST UPDATED DAILY](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=GLOBAL_ANALYSISFORECAST_PHY_CPL_001_015)
+
+```{r sea surface height}
+
+ssh <- nc_open("../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1624479050261.nc")
+
 
 ```
 
@@ -539,6 +553,7 @@ sst_month <- stackApply(sst_brick, indices, fun = mean)
 # animate(sst_month, pause=0.5, n=1)
 
 ```
+
 I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.org/raster-time-series-alaska-lesson/index.html#/slides/brick)
 
 For calculating monthly mean values in a [raster brick](https://gis.stackexchange.com/questions/237272/mean-by-month-on-r-stacked-raster). 
