@@ -26,9 +26,15 @@ library(rgdal)
 Study area boundaries. 
 
 ```{r study area warning=FALSE}
-# Location of study area shape file on my computer
-study <- read_sf("../Data_Raw/DraftSeaLionAOI_Envelope_20kmBuff_6334.shp")
-basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>% st_buffer(0)
+# Create study area polygon
+coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
+study <- coords %>% 
+         st_as_sf(coords = c("lon", "lat"), crs=4326) %>% 
+         group_by(id) %>% 
+         summarize(geometry = st_combine(geometry)) %>%  
+         st_cast("POLYGON") %>% 
+         st_transform(6334)
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>%  st_buffer(0)
 
 # Projection information for NAT83/UTM Zone 5N (EPSG:6334)
 prj <- "+proj=utm +zone=5 +ellps=GRS80 +units=m +no_defs"
@@ -121,9 +127,10 @@ for(i in 1:length(lyrs)){
   sealis <- rbind(sealis, temp)
 }
 
-# Remove points outside the study area
-sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
-sealis <- sealis[which(sealis$inbounds == TRUE),]
+# Remove low quality points 
+sealis <- sealis[-which(sealis$Quality %in% c("A","B","0")),]
+# sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
+# sealis <- sealis[which(sealis$inbounds == TRUE),]
 
 ############ CHECK ON THIS ###############
 # 40 Duplicated rows (excluding geometry column)
@@ -139,6 +146,18 @@ ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_sf(data=study, fill=NA, color="red")+
   geom_sf(data=sealis, aes(color=DeployID))
+
+# Tag duration timeline 
+timeline <- sealis %>% st_drop_geometry() %>% group_by(DeployID) %>% summarize(starttag = as.Date(min(Date)), endtag=as.Date(max(Date)))
+
+ggplot(timeline, aes(x=starttag, y= DeployID)) +
+  geom_linerange(aes(xmin = starttag, xmax = endtag),color = "black",size = 2) + 
+  scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
+  theme(axis.text.x=element_text(angle=45, hjust=1))+
+  ylab("") +
+  xlab("") +
+  ggtitle("Tag Duration")
+
 
 ``` 
 
@@ -209,14 +228,15 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+
+# writeRaster(slope, "../Data_Processed/Slope.tif")
 ```
 
 ## Distance to land 
 
 ```{r dist2land}
-# ESTIMATED COORDINATES --- WILL NEED TO UPDATE
 # Get depth data from NOAA 
-depth <- getNOAA.bathy(lat1=55, lat2=61, lon1=-146, lon2=-156, resolution = 1)
+depth <- getNOAA.bathy(lat1=55, lat2=62, lon1=-143, lon2=-156, resolution = 1)
 
 # Creating color palettes
 blues <- c("lightsteelblue4", "lightsteelblue3",
@@ -249,6 +269,8 @@ ggplot() +
   geom_raster(data=distland2.df, aes(x=x, y=y, fill=distland), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
+
+# writeRaster(distland2, "../Data_Processed/DistLand.tif")
 ```
 
 ## Distance to shelf break
@@ -268,6 +290,8 @@ ggplot() +
   geom_raster(data=dist500m.df, aes(x=x, y=y, fill=dist500m), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
+
+writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 ```
 
