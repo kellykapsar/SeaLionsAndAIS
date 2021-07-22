@@ -20,12 +20,16 @@ library(marmap)
 library(ncdf4)
 library(anytime)
 library(rgdal)
+library(scales)
 
 ```
 
 Study area boundaries. 
 
 ```{r study area warning=FALSE}
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
 # Create study area polygon
 coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
 study <- coords %>% 
@@ -33,11 +37,10 @@ study <- coords %>%
          group_by(id) %>% 
          summarize(geometry = st_combine(geometry)) %>%  
          st_cast("POLYGON") %>% 
-         st_transform(6334)
-basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(6334) %>%  st_buffer(0)
+         st_transform(prj)
+# st_write(study, "../Data_Raw/studyarea.shp")
 
-# Projection information for NAT83/UTM Zone 5N (EPSG:6334)
-prj <- "+proj=utm +zone=5 +ellps=GRS80 +units=m +no_defs"
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(prj) %>%  st_buffer(0)
 
 # Crop basemap to buffered extent of study area 
 study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
@@ -54,7 +57,7 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 1 km land mask layer. 
 
-```{r land mask}
+```{r land mask kodiak}
 # Open netcdf file 
 landmask <- nc_open("../Data_Raw/arc/base/analysis_masks/kod_mask_1k_u5w84.nc")
 # Save metadata to a text file
@@ -102,6 +105,58 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 ```
 
+```{r land mask pws}
+
+############################################################
+# SOMETHING'S WRONG WITH THE PROJECTION...IT'S APPEARING IN ZONE 5 INSTEAD OF ZONE 6
+
+# Open netcdf file 
+landmask2 <- nc_open("../Data_Raw/arc/base/analysis_masks/pws_mask_1k_u6w84.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/arc/base/analysis_masks/pws_mask_1k_u6w84.txt')
+  print(landmask2)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(landmask2, "x")
+lat <- ncvar_get(landmask2, "y", verbose = F)
+
+head(lon)
+
+# Read in data from the variable and verify the dimensions of the array
+landmask2.array <- ncvar_get(landmask2, "pws_mask_1k_u6w84") # 3dim array
+dim(landmask2.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(landmask2, "pws_mask_1k_u6w84","missing_value")
+fillvalue
+
+landmask2.array[landmask2.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(landmask2)
+
+# Create raster of landmask
+landmask2.r <- raster(t(landmask2.array), 
+                xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # CRS from metadata
+                crs=CRS("+proj=utm +zone=6 +datum=WGS84 +units=m +no_defs")) 
+
+landmask2.df <- as.data.frame(landmask2.r, xy=TRUE)
+colnames(landmask2.df) <- c("x","y","water")
+
+plot(landmask2.r)
+
+# Map of study area with landmask data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=landmask2.df, aes(x=x, y=y, fill=water), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+```
+
 ## Sea Lion location geodatabase
 
 ```{r sea lion gdb processing}
@@ -139,7 +194,7 @@ test <- duplicated(data.frame(sealis))
 sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
 
 # Transform geometry to correct projection 
-st_geometry(sealis) <- st_transform(st_geometry(sealis),prj)
+st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
 
 # Map of study area 
 ggplot() +
@@ -155,8 +210,7 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
   scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
   theme(axis.text.x=element_text(angle=45, hjust=1))+
   ylab("") +
-  xlab("") +
-  ggtitle("Tag Duration")
+  xlab("") 
 
 
 ``` 
@@ -165,9 +219,9 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
 ```{r ais, warning=FALSE}
 
 # Import raster, reproject to 4336, and crop to study area
-ships <- raster::raster("../Data_Processed/AIS/AISRasterSubset_2018-11-Cargo_5000m.tif", crs="+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") 
+ships <- raster::raster("../Data_Processed/AIS/AISRasterSubset_2018-11-Cargo_1000m.tif", crs="+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") %>%  projectRaster(crs=prj)
 
-shipsDf <- as.data.frame(ships, xy=TRUE) 
+shipsDf <- as.data.frame(ships, xy=TRUE) %>% drop_na()
 colnames(shipsDf) <- c("x","y","km")
 
 # Save raster object 
@@ -177,7 +231,7 @@ colnames(shipsDf) <- c("x","y","km")
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_raster(data=shipsDf, aes(x=x, y=y, fill=km), alpha=0.9) +
-  scale_fill_gradient2() +
+  scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red") +
   geom_sf(data=study, fill=NA, color="red")
 
 ```
@@ -191,9 +245,9 @@ Bathymetry data were collected from the [General Bathymetric Chart of the Oceans
 # bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
 
 # Import raster, reproject to 4336, and crop to study area
-bathy <- raster::raster("../Data_Raw/GEBCO_2020_09_Nov_2020_tif/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.tif") %>% projectRaster(crs=prj) %>% raster::crop(study)
+bathy <- raster::raster("../Data_Raw/GEBCO_2020_21_Jul_2021/gebco_2020_n62.0_s56.0_w-155.0_e-143.0.tif") %>% projectRaster(crs=prj) %>% raster::crop(study)
 
-bathyDf <- as.data.frame(bathy, xy=TRUE) 
+bathyDf <- as.data.frame(bathy, xy=TRUE) %>% drop_na()
 colnames(bathyDf) <- c("x","y","depth")
 
 # Save raster object 
@@ -206,6 +260,8 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+# writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
+
 ```
 
 ## Slope
@@ -215,7 +271,7 @@ ggplot() +
 slope <- terrain(bathy, opt="slope", unit="radians", neighbors=8)
 
 
-slopeDf <- as.data.frame(slope, xy=TRUE) 
+slopeDf <- as.data.frame(slope, xy=TRUE)  %>% drop_na()
 colnames(slopeDf) <- c("x","y","slope")
 
 # Save raster object 
@@ -235,25 +291,25 @@ ggplot() +
 ## Distance to land 
 
 ```{r dist2land}
-# Get depth data from NOAA 
-depth <- getNOAA.bathy(lat1=55, lat2=62, lon1=-143, lon2=-156, resolution = 1)
-
-# Creating color palettes
-blues <- c("lightsteelblue4", "lightsteelblue3",
-"lightsteelblue2", "lightsteelblue1")
-greys <- c(grey(0.6), grey(0.93), grey(0.99))
-
-# Plot depth data 
-plot(depth, image = TRUE, land = TRUE, lwd = 0.03, 
-     bpal = list(c(0, max(depth), greys),c(min(depth), 0, blues)))
-# Add coastline
-plot(depth, n = 1, lwd = 0.4, add = TRUE)
-
-# summary(depth)
-
-# Transect of depth profile at 58N across study area 
-trsect <- get.transect(depth, -155, 58, -148, 58, distance = TRUE)
-plotProfile(trsect)
+# # Alternate method: Get depth data from NOAA 
+# depth <- getNOAA.bathy(lat1=55, lat2=62, lon1=-143, lon2=-156, resolution = 1)
+# 
+# # Creating color palettes
+# blues <- c("lightsteelblue4", "lightsteelblue3",
+# "lightsteelblue2", "lightsteelblue1")
+# greys <- c(grey(0.6), grey(0.93), grey(0.99))
+# 
+# # Plot depth data 
+# plot(depth, image = TRUE, land = TRUE, lwd = 0.03, 
+#      bpal = list(c(0, max(depth), greys),c(min(depth), 0, blues)))
+# # Add coastline
+# plot(depth, n = 1, lwd = 0.4, add = TRUE)
+# 
+# # summary(depth)
+# 
+# # Transect of depth profile at 58N across study area 
+# trsect <- get.transect(depth, -155, 58, -148, 58, distance = TRUE)
+# plotProfile(trsect)
 
 
 # Calculate distance to nearest NA cell for all cells in landmask raster 
@@ -261,7 +317,7 @@ distland2 <- bathy
 values(distland2)[values(distland2) <= 0] = NA
 distland2 <- raster::distance(distland2)
 
-distland2.df <- as.data.frame(distland2, xy=TRUE)
+distland2.df <- as.data.frame(distland2, xy=TRUE) %>% drop_na()
 colnames(distland2.df) <- c("x","y","distland")
 
 ggplot() +
@@ -282,7 +338,7 @@ dist500m <- bathy
 values(dist500m)[values(dist500m) >= -400 | values(dist500m) <= -500] = NA
 dist500m <- raster::distance(dist500m)
 
-dist500m.df <- as.data.frame(dist500m, xy=TRUE)
+dist500m.df <- as.data.frame(dist500m, xy=TRUE)  %>% drop_na()
 colnames(dist500m.df) <- c("x","y","dist500m")
 
 ggplot() +
@@ -315,10 +371,10 @@ Data set name: [GLOBAL OCEAN WIND L4 NEAR REAL TIME 6 HOURLY OBSERVATIONS](https
 ```{r wind speed}
 
 # Open netcdf file 
-wind <- nc_open("../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1612900944654.nc")
+wind <- nc_open("../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1626911972037.nc")
 # Save metadata to a text file
 {
-  sink('../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1612900944654.txt')
+  sink('../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_16269119720374.txt')
   print(wind)
   sink()
 }
@@ -354,7 +410,7 @@ wind.r <- raster(t(wind.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max
          flip(direction="y")%>%
          raster::projectRaster(crs=prj)
 
-wind.df <- as.data.frame(wind.r, xy=TRUE)
+wind.df <- as.data.frame(wind.r, xy=TRUE) %>% drop_na()
 colnames(wind.df) <- c("x","y","windspeed")
 
 plot(wind.r)
@@ -367,12 +423,13 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+
+test <- aperm(wind.array, c(2,1,3))
 # Make a raster brick of all values 
-wind_brick <- brick(wind.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+wind_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
                 crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
-         flip(direction="x") %>%
-         raster::projectRaster(crs=prj) %>% 
-         raster::crop(study)
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) 
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="hours")
@@ -397,7 +454,7 @@ wind_month <- stackApply(wind_brick, indices, fun = mean)
 # animate(wind_month, pause=0.5, n=1)
 
 # plot monthly average wind data for November, 2018
-windmonth.df <- as.data.frame(wind_month[[1]], xy=TRUE)
+windmonth.df <- as.data.frame(wind_month[[1]], xy=TRUE)  %>% drop_na()
 colnames(windmonth.df) <- c("x","y","windspeed")
 
 ggplot() +
@@ -406,19 +463,20 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+# animate(wind_month, pause=0.5, n=1)
 
 # Save output file
-# writeRaster(wind_month, "../Data_Processed/WIND_Monthly_cropped_4336.nc", 
-#               overwrite=TRUE, format="CDF",     
-#               varname="wind_speed", varunit="m/s", 
-#               longname="Wind Speed -- raster brick to netCDF", 
-#               xname="lon",   yname="lat",zname="time",
-#               zunit="numeric")
+# writeRaster(wind_month, "../Data_Processed/WIND_Monthly.nc",
+              # overwrite=TRUE, format="CDF",
+              # varname="wind_speed", varunit="m/s",
+              # longname="Wind Speed -- raster brick to netCDF",
+              # xname="lon",   yname="lat",zname="time",
+              # zunit="numeric")
 ```
 
 Test to make sure that the netcdf file saved correctly. 
 
-```{r testing netcdf file save}
+```{r testing netcdf file save, eval=FALSE}
 
 test <-nc_open("../Data_Processed/WIND_Monthly_cropped_4336.nc")
 
@@ -479,14 +537,14 @@ Citation: 	UK Met Office. 2005. OSTIA L4 SST Analysis. Ver. 1.0. PO.DAAC, CA, US
 Data requested from: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc/dataset.html
 Variables = analysed_sst, analysis_error, mask, sea_ice_fraction
 
-North = 61
-South = 55
-West = -156
-East = -147
+North = 62
+South = 56
+West = -155
+East = -143
 Start = 01 Nov 2018
-End = 31 May 2020
+End = 31 July 2020
 
-NCSS Request URL: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc?var=analysed_sst&var=analysis_error&var=mask&var=sea_ice_fraction&north=61&west=-156&east=-147&south=55&horizStride=1&time_start=2018-11-01T12%3A00%3A00Z&time_end=2020-05-31T12%3A00%3A00Z&timeStride=1&accept=netcdf
+NCSS Request URL: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc?var=analysed_sst&var=analysis_error&var=mask&var=sea_ice_fraction&north=62&west=-155&east=-143&south=56&disableProjSubset=on&horizStride=1&time_start=2018-11-01T12%3A00%3A00Z&time_end=2020-07-31T12%3A00%3A00Z&timeStride=1&accept=netcdf
 
 ```{r sea surface temperature}
 
@@ -531,7 +589,7 @@ sst.r <- raster(t(sst.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(l
          raster::projectRaster(crs=prj) %>%
          raster::crop(study)
 
-sst.df <- as.data.frame(sst.r, xy=TRUE)
+sst.df <- as.data.frame(sst.r, xy=TRUE) %>% drop_na()
 colnames(sst.df) <- c("x","y","sst")
 
 plot(sst.r)
@@ -576,6 +634,13 @@ indices <- as.numeric(indices)
 sst_month <- stackApply(sst_brick, indices, fun = mean)
 # animate(sst_month, pause=0.5, n=1)
 
+# writeRaster(sst_month, "../Data_Processed/SST_Monthly.nc",
+#       overwrite=TRUE, format="CDF",
+#       varname="analysed_sst", varunit="m/s",
+#       longname="Sea Surface Temperature -- raster brick to netCDF",
+#       xname="lon",   yname="lat",zname="time",
+#       zunit="numeric")
+
 ```
 
 I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.org/raster-time-series-alaska-lesson/index.html#/slides/brick)
@@ -585,10 +650,10 @@ For calculating monthly mean values in a [raster brick](https://gis.stackexchang
 ```{r merging sea lion locs with SST data, warnings=F, messages=F}
 
 # Put seali date into same format as raster brick names
-sealis$yearmon <- format(sealis$Date_, format="%Y%m")
+sealis$yearmon <- format(sealis$Date, format="%Y%m")
 
-# Extract monghtly average values for SST at seali locs
-# Want to look into using an apply function to hopefullymake this go faster (it takes ~5 min right now)
+# Extract monthly average values for SST at seali locs
+# Want to look into using an apply function to hopefully make this go faster (it takes ~5 min right now)
 for(i in 1:length(sealis$DeployID)){
   if(i %% 100 == 0){
     print(i)
