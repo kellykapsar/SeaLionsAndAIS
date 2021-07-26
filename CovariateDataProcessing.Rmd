@@ -357,7 +357,112 @@ Source: [GLOBAL OCEAN 1/4° PHYSICS ANALYSIS AND FORECAST UPDATED DAILY](https:/
 
 ```{r sea surface height}
 
-ssh <- nc_open("../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1624479050261.nc")
+ssh <- nc_open("../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1627072681703.nc")
+
+{
+  sink('../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1627072681703.txt')
+  print(ssh)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(ssh, "lon")
+lat <- ncvar_get(ssh, "lat", verbose = F)
+t <- ncvar_get(ssh, "time")
+
+head(lon)
+
+# Read in data from the ssh variable and verify the dimensions of the array
+ssh.array <- ncvar_get(ssh, "zos") # 3dim array
+dim(ssh.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(ssh, "zos","_FillValue")
+fillvalue
+
+ssh.array[ssh.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(ssh)
+
+# Convert longitude from 0-360 to -180 to 180
+lon <- lon-360
+
+# Isolate and plot a random time step to check
+ssh.slice <- ssh.array[,,1]
+
+dim(ssh.slice) #2dim
+
+ssh.r <- raster(t(ssh.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website
+                crs=4326) %>%
+         flip(direction="y")%>%
+         raster::projectRaster(crs=prj)
+
+ssh.df <- as.data.frame(ssh.r, xy=TRUE) %>% drop_na()
+colnames(ssh.df) <- c("x","y","ssh")
+
+plot(ssh.r)
+
+
+# Map of study area with ssh data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=ssh.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
+test <- aperm(ssh.array, c(2,1,3))
+# Make a raster brick of all values 
+ssh_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) 
+
+# Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
+# Found this date in metadata text file
+t2 <- as.POSIXct("2016-01-01 00:00")+t
+
+class(t2)
+# Name raster layers after the date that they portray
+names(ssh_brick) <-t2
+
+# Save output file
+# writeRaster(ssh_brick, "../Data_Processed/ssh.tif")
+
+# Fun animation of the raster brick
+# animate(ssh_brick, pause=0.5, n=1)
+
+# Calculate mean monthly ssh rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(ssh_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+ssh_month <- stackApply(ssh_brick, indices, fun = mean)
+# animate(ssh_month, pause=0.5, n=1)
+
+# plot monthly average ssh data for November, 2018
+sshmonth.df <- as.data.frame(ssh_month[[1]], xy=TRUE)  %>% drop_na()
+colnames(sshmonth.df) <- c("x","y","ssh")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=sshmonth.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# animate(ssh_month, pause=0.5, n=1)
+
+# Save output file
+# writeRaster(ssh_month, "../Data_Processed/SSH_Monthly.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="ssh", varunit="m",
+#               longname="Sea Surface Height -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
 
 
 ```
