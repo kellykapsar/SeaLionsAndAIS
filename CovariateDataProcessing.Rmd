@@ -353,34 +353,39 @@ writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 ## Sea Surface Height
 
-Source: [GLOBAL OCEAN 1/4° PHYSICS ANALYSIS AND FORECAST UPDATED DAILY](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=GLOBAL_ANALYSISFORECAST_PHY_CPL_001_015)
+FORMER Source: [GLOBAL OCEAN 1/4° PHYSICS ANALYSIS AND FORECAST UPDATED DAILY](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=GLOBAL_ANALYSISFORECAST_PHY_CPL_001_015)
 
-```{r sea surface height}
+NEW Source: [SEALEVEL_GLO_PHY_L4_NRT_OBSERVATIONS_008_046](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=SEALEVEL_GLO_PHY_L4_NRT_OBSERVATIONS_008_046)
 
-ssh <- nc_open("../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1627072681703.nc")
+```{r sea surface height - reprocessed}
+
+ssh <- nc_open("../Data_Raw/dataset-duacs-rep-global-merged-allsat-phy-l4_20181101-20200531.nc")
 
 {
-  sink('../Data_Raw/MetO-GLO-PHY-CPL-dm-SSH_1627072681703.txt')
+  sink('../Data_Raw/dataset-duacs-rep-global-merged-allsat-phy-l4_20181101-20200531.txt')
   print(ssh)
   sink()
 }
 
 # Read lat lon and time for each observation
-lon <- ncvar_get(ssh, "lon")
-lat <- ncvar_get(ssh, "lat", verbose = F)
+lon <- ncvar_get(ssh, "longitude")
+lat <- ncvar_get(ssh, "latitude", verbose = F)
 t <- ncvar_get(ssh, "time")
 
 head(lon)
 
 # Read in data from the ssh variable and verify the dimensions of the array
-ssh.array <- ncvar_get(ssh, "zos") # 3dim array
+ssh.array <- ncvar_get(ssh, "adt") # 3dim array
+veln.array <- ncvar_get(ssh, "vgos") 
+vele.array <- ncvar_get(ssh, "ugos") 
 dim(ssh.array)
 
-# Identify fill value and replace with NA
-fillvalue <- ncatt_get(ssh, "zos","_FillValue")
-fillvalue
-
-ssh.array[ssh.array == fillvalue$value] <- NA
+#### NO FILL VALUE IN THESE DATA? 
+# # Identify fill value and replace with NA
+# fillvalue <- ncatt_get(ssh, "adt","_FillValue")
+# fillvalue
+# 
+# ssh.array[ssh.array == fillvalue$value] <- NA
 
 # Close netcdf file
 nc_close(ssh)
@@ -397,7 +402,8 @@ ssh.r <- raster(t(ssh.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(l
                 # Found projection on the website
                 crs=4326) %>%
          flip(direction="y")%>%
-         raster::projectRaster(crs=prj)
+         raster::projectRaster(crs=prj) %>%
+         raster::crop(study)
 
 ssh.df <- as.data.frame(ssh.r, xy=TRUE) %>% drop_na()
 colnames(ssh.df) <- c("x","y","ssh")
@@ -418,11 +424,12 @@ test <- aperm(ssh.array, c(2,1,3))
 ssh_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
                 crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
          flip(direction="y") %>%
-         raster::projectRaster(crs=prj) 
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
 
 # Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
 # Found this date in metadata text file
-t2 <- as.POSIXct("2016-01-01 00:00")+t
+t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
 
 class(t2)
 # Name raster layers after the date that they portray
@@ -457,7 +464,7 @@ ggplot() +
 # animate(ssh_month, pause=0.5, n=1)
 
 # Save output file
-# writeRaster(ssh_month, "../Data_Processed/SSH_Monthly.nc",
+# writeRaster(ssh_month, "../Data_Processed/SSH_Monthly_20181101-20200531.nc",
 #               overwrite=TRUE, format="CDF",
 #               varname="ssh", varunit="m",
 #               longname="Sea Surface Height -- raster brick to netCDF",
@@ -465,6 +472,96 @@ ggplot() +
 #               zunit="numeric")
 
 
+```
+
+
+```{r sea surface height - nrt}
+
+ssh2 <- nc_open("../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.nc")
+
+{
+  sink('../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.txt')
+  print(ssh2)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(ssh2, "longitude")
+lat <- ncvar_get(ssh2, "latitude", verbose = F)
+t <- ncvar_get(ssh2, "time")
+
+head(lon)
+
+# Read in data from the ssh2 variable and verify the dimensions of the array
+ssh2.array <- ncvar_get(ssh2, "adt") # 3dim array
+dim(ssh2.array)
+
+#### NO FILL VALUE IN THESE DATA? 
+# # Identify fill value and replace with NA
+# fillvalue <- ncatt_get(ssh2, "adt","_FillValue")
+# fillvalue
+# 
+# ssh2.array[ssh2.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(ssh2)
+
+# Convert longitude from 0-360 to -180 to 180
+lon <- lon-360
+
+test <- aperm(ssh2.array, c(2,1,3))
+# Make a raster brick of all values 
+ssh2_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+# Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
+# Found this date in metadata text file
+t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+
+class(t2)
+# Name raster layers after the date that they portray
+names(ssh2_brick) <-t2
+
+# Save output file
+# writeRaster(ssh2_brick, "../Data_Processed/ssh2.tif")
+
+# Fun animation of the raster brick
+# animate(ssh2_brick, pause=0.5, n=1)
+
+# Calculate mean monthly ssh2 rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(ssh2_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+ssh2_month <- stackApply(ssh2_brick, indices, fun = mean)
+# animate(ssh2_month, pause=0.5, n=1)
+
+# plot monthly average ssh data for November, 2018
+ssh2month.df <- as.data.frame(ssh2_month[[1]], xy=TRUE)  %>% drop_na()
+colnames(ssh2month.df) <- c("x","y","ssh")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=ssh2month.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
+temp <- addLayer(ssh_month, ssh2_month)
+# animate(ssh_month, pause=0.5, n=1)
+
+# Save output file
+# writeRaster(ssh2_month, "../Data_Processed/SSH_Monthly_20200601-20200731.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="ssh", varunit="m",
+#               longname="Sea Surface Height -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
 ```
 
 ## Wind Speed 
