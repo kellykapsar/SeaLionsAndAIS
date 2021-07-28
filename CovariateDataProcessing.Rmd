@@ -196,6 +196,9 @@ sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
 # Transform geometry to correct projection 
 st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
 
+# Save clean seali data 
+st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210727.shp")
+
 # Map of study area 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
@@ -218,11 +221,61 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
 ## AIS Data
 ```{r ais, warning=FALSE}
 
-# Import raster, reproject to 4336, and crop to study area
-ships <- raster::raster("../Data_Processed/AIS/AISRasterSubset_2018-11-Cargo_1000m.tif", crs="+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs") %>%  projectRaster(crs=prj)
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
+aisbound_sp <- aisbound_sf %>% as("Spatial")
 
-shipsDf <- as.data.frame(ships, xy=TRUE) %>% drop_na()
-colnames(shipsDf) <- c("x","y","km")
+# Import raster, reproject to 4336, and crop to study area
+fishinglist <- list.files("../Data_Processed/AIS/", pattern="Fishing")
+otherlist <- list.files("../Data_Processed/AIS/", pattern="Other")
+cargolist <- list.files("../Data_Processed/AIS/", pattern="Cargo")
+tankerlist <- list.files("../Data_Processed/AIS/", pattern="Tanker")
+
+# Create raster bricks for each ship type 
+fishingras <- lapply(fishinglist, 
+                     function(x){projectRaster(raster::raster(paste0("../Data_Processed/AIS/", x)), crs=prj)})
+fishingbrick <- raster::brick(fishingras) %>% raster::mask(aisbound_sp)
+
+otherras <- lapply(otherlist, 
+                     function(x){projectRaster(raster::raster(paste0("../Data_Processed/AIS/", x)), crs=prj)})
+otherbrick <- raster::brick(otherras) %>% raster::mask(aisbound_sp)
+
+cargoras <- lapply(cargolist, 
+                     function(x){projectRaster(raster::raster(paste0("../Data_Processed/AIS/", x)), crs=prj)})
+cargobrick <- raster::brick(cargoras) %>% raster::mask(aisbound_sp)
+
+tankerras <- lapply(tankerlist, 
+                     function(x){projectRaster(raster::raster(paste0("../Data_Processed/AIS/", x)), crs=prj)})
+tankerbrick <- raster::brick(tankerras) %>% raster::mask(aisbound_sp)
+
+shippingbrick <- otherbrick + cargobrick + tankerbrick
+
+
+
+# There's a faster way to do this, but I'm too tired right now
+yearmon <- c("index_201811", "index_201812", "index_201901", "index_201902", "index_201903", "index_201904", "index_201905", "index_201906", "index_201907", "index_201908", "index_201909", "index_201910", "index_201911", "index_201912", "index_202001", "index_202002","index_202003", "index_202004", "index_202005", "inted_202006", "index_202007")
+names(shippingbrick) <- yearmon
+names(fishingbrick) <- yearmon
+
+# Save raster bricks as netcdf files 
+# Save output file
+writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="m",
+              longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
+
+writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="m",
+              longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
+
+# Plot results 
+fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
+colnames(fish.df) <- c("x","y","intensity")
 
 # Save raster object 
 # raster::writeRaster(bathy, "../Data_Processed/bathemtry_GEBCO_cropped_4336.tif")
@@ -230,9 +283,10 @@ colnames(shipsDf) <- c("x","y","km")
 # Map of study area with bathymetric data 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=shipsDf, aes(x=x, y=y, fill=km), alpha=0.9) +
-  scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red") +
-  geom_sf(data=study, fill=NA, color="red")
+  geom_raster(data=fish.df, aes(x=x, y=y, fill=intensity), alpha=0.9) +
+  geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
+  geom_sf(data=study, fill=NA, color="red") +
+  scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
 
 ```
 
