@@ -474,6 +474,134 @@ ggplot() +
 
 ```
 
+## Eddy Kinetic Energy 
+
+Calculated from the same source as SSH. 
+
+```{r EKE calculation and processing - reprocessed}
+
+eke <- nc_open("../Data_Raw/dataset-duacs-rep-global-merged-allsat-phy-l4_20181101-20200531.nc")
+
+{
+  sink('../Data_Raw/dataset-duacs-rep-global-merged-allsat-phy-l4_20181101-20200531.txt')
+  print(eke)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(eke, "longitude")
+lat <- ncvar_get(eke, "latitude", verbose = F)
+t <- ncvar_get(eke, "time")
+
+head(lon)
+
+# Read in data from the geostrophic velocity variables and verify the dimensions of the array
+veln.array <- ncvar_get(eke, "vgos") 
+vele.array <- ncvar_get(eke, "ugos") 
+
+#### NO FILL VALUE IN THESE DATA? 
+# # Identify fill value and replace with NA
+# fillvalue <- ncatt_get(eke, "adt","_FillValue")
+# fillvalue
+# 
+# eke.array[eke.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(eke)
+
+# vele = surface_geostrophic_eastward_sea_water_velocity
+# veln = surface_geostrophic_northward_sea_water_velocity
+
+# Calculation from Bornemann et al. 2021 
+# "eke = 0.5(curru2 + currv2);where curru= horizontal geostrophic velocity; currv = vertical geostrophic velocity" 
+
+eke.array <- 0.5*(vele.array + veln.array)
+
+
+# Convert longitude from 0-360 to -180 to 180
+lon <- lon-360
+
+# Isolate and plot a random time step to check
+eke.slice <- eke.array[,,1]
+
+dim(eke.slice) #2dim
+
+eke.r <- raster(t(eke.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website
+                crs=4326) %>%
+         flip(direction="y")%>%
+         raster::projectRaster(crs=prj) %>%
+         raster::crop(study)
+
+eke.df <- as.data.frame(eke.r, xy=TRUE) %>% drop_na()
+colnames(eke.df) <- c("x","y","eke")
+
+plot(eke.r)
+
+
+# Map of study area with eke data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=eke.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
+test <- aperm(eke.array, c(2,1,3))
+# Make a raster brick of all values 
+eke_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+# Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
+# Found this date in metadata text file
+t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+
+class(t2)
+# Name raster layers after the date that they portray
+names(eke_brick) <-t2
+
+# Save output file
+# writeRaster(eke_brick, "../Data_Processed/eke.tif")
+
+# Fun animation of the raster brick
+# animate(eke_brick, pause=0.5, n=1)
+
+# Calculate mean monthly eke rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(eke_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+eke_month <- stackApply(eke_brick, indices, fun = mean)
+# animate(eke_month, pause=0.5, n=1)
+
+# plot monthly average eke data for November, 2018
+ekemonth.df <- as.data.frame(eke_month[[1]], xy=TRUE)  %>% drop_na()
+colnames(ekemonth.df) <- c("x","y","eke")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=ekemonth.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# animate(eke_month, pause=0.5, n=1)
+
+# Save output file
+# writeRaster(eke_month, "../Data_Processed/EKE_Monthly_20181101-20200531.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="eke", varunit="m^2/s^2",
+#               longname="Eddy Kinetic Energy -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
+
+
+```
+
 
 ```{r sea surface height - nrt}
 
@@ -563,6 +691,95 @@ temp <- addLayer(ssh_month, ssh2_month)
 #               xname="lon",   yname="lat",zname="time",
 #               zunit="numeric")
 ```
+
+```{r eddy kinetic energy - nrt}
+
+eke2 <- nc_open("../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.nc")
+
+{
+  sink('../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.txt')
+  print(eke2)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(eke2, "longitude")
+lat <- ncvar_get(eke2, "latitude", verbose = F)
+t <- ncvar_get(eke2, "time")
+
+head(lon)
+
+# Read in data from the eke2 variable and verify the dimensions of the array
+veln.array <- ncvar_get(eke2, "vgos") 
+vele.array <- ncvar_get(eke2, "ugos") 
+
+
+#### NO FILL VALUE IN THESE DATA? 
+# # Identify fill value and replace with NA
+# fillvalue <- ncatt_get(eke2, "adt","_FillValue")
+# fillvalue
+# 
+# eke2.array[eke2.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(eke2)
+
+# Calculate EKE based on Bornemann et al. 2021
+eke2.array <- 0.5*(vele.array + veln.array)
+
+test <- aperm(eke2.array, c(2,1,3))
+# Make a raster brick of all values 
+eke2_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+# Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
+# Found this date in metadata text file
+t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+
+class(t2)
+# Name raster layers after the date that they portray
+names(eke2_brick) <-t2
+
+# Save output file
+# writeRaster(eke2_brick, "../Data_Processed/eke2.tif")
+
+# Fun animation of the raster brick
+# animate(eke2_brick, pause=0.5, n=1)
+
+# Calculate mean monthly eke2 rasters 
+
+#get the date from the names of the layers and extract the month
+indices <- format(as.Date(names(eke2_brick), format = "X%Y.%m.%d"), format = "%Y%m")
+indices <- as.numeric(indices)
+
+#sum layers
+eke2_month <- stackApply(eke2_brick, indices, fun = mean)
+# animate(eke2_month, pause=0.5, n=1)
+
+# plot monthly average ssh data for November, 2018
+eke2month.df <- as.data.frame(eke2_month[[1]], xy=TRUE)  %>% drop_na()
+colnames(eke2month.df) <- c("x","y","eke")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=eke2month.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# animate(eke2_month, pause=0.5, n=1)
+
+# Save output file
+# writeRaster(eke2_month, "../Data_Processed/EKE_Monthly_20200601-20200731.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="EKE", varunit="m^2/s^2",
+#               longname="Eddy Kinetic Energy -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
+```
+
 
 ## Wind Speed 
 
