@@ -347,22 +347,67 @@ ggplot() +
 
 ```
 
+## Landmask 
+
+This landmask is at the same scale as the bathymetry data. Note: Zero values were included as water and not land.
+
 
 ```{r GEBCO landmask}
-landmask.test <- bathy
-landmask.test[landmask.test > 0] <- 1
-landmask.test[landmask.test < 0 | landmask.test == 0] <- NA
+landmask <- bathy
+landmask[landmask > 0] <- 1
+landmask[landmask < 0 | landmask == 0] <- NA
 
-landmask.testDf <- as.data.frame(landmask.test, xy=TRUE) %>% drop_na()
-colnames(landmask.testDf) <- c("x","y","land")
+landmaskDf <- as.data.frame(landmask, xy=TRUE) %>% drop_na()
+colnames(landmaskDf) <- c("x","y","land")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=landmask.testDf, aes(x=x, y=y, fill=land), alpha=0.9) +
+  geom_tile(data=landmaskDf, aes(x=x, y=y, fill=land), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
 # writeRaster(landmask.test,"../Data_Processed/Landmask_GEBCO.tif")
+```
+```{r average number of non-land points per sea lion per time period}
+
+
+sealis$land <- raster::extract(landmask, sealis)
+sum(sealis$land, na.rm=T)/length(sealis$land)*100
+
+watersealis <- sealis[is.na(sealis$land),]
+
+watersealis$fortnight <- ceiling(lubridate::week(watersealis$Date) / 2)
+watersealis$weekofyear <- lubridate::week(watersealis$Date)
+watersealis$month <- lubridate::month(watersealis$Date)
+watersealis$year <- lubridate::year(watersealis$Date)
+watersealis$dayofyear <- lubridate::date(watersealis$Date)
+
+ptcts_month <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, month) %>% summarize(n=n())
+ptcts_month <- ptcts_month%>% group_by(DeployID) %>% summarize(meanmonthlypts = mean(n))
+
+ptcts_biweek <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, fortnight) %>% summarize(n=n())
+ptcts_biweek <- ptcts_biweek%>% group_by(DeployID) %>% summarize(meanbiweekpts = mean(n))
+
+ptcts_week <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, weekofyear) %>% summarize(n=n())
+ptcts_week <- ptcts_week%>% group_by(DeployID) %>% summarize(meanweekpts = mean(n))
+
+ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, dayofyear) %>% summarize(n=n())
+ptcts_day <- ptcts_day%>% group_by(DeployID) %>% summarize(meandaypts = mean(n))
+
+ptcts <- left_join(ptcts_month, ptcts_biweek, by="DeployID")
+ptcts <- left_join(ptcts, ptcts_week, by="DeployID")
+ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
+
+write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
+
+# watersealidata <- data.frame(stat=c(), monthly=c(), biweekly=c(), weekly=c(), daily=c())
+# watersealidata[1,"stat"] <- "mean"
+# watersealidata[1,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], mean))
+# 
+# watersealidata[2,"stat"] <- "stdev"
+# watersealidata[2,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], sd))
+
+
 ```
 
 
