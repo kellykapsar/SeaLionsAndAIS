@@ -57,7 +57,7 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 1 km land mask layer. 
 
-```{r land mask kodiak}
+```{r land mask kodiak, eval=F}
 # Open netcdf file 
 landmask <- nc_open("../Data_Raw/arc/base/analysis_masks/kod_mask_1k_u5w84.nc")
 # Save metadata to a text file
@@ -105,7 +105,7 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 ```
 
-```{r land mask pws}
+```{r land mask pws, eval=F}
 
 ############################################################
 # SOMETHING'S WRONG WITH THE PROJECTION...IT'S APPEARING IN ZONE 5 INSTEAD OF ZONE 6
@@ -120,34 +120,37 @@ landmask2 <- nc_open("../Data_Raw/arc/base/analysis_masks/pws_mask_1k_u6w84.nc")
 }
 
 # Read lat lon and time for each observation
-lon <- ncvar_get(landmask2, "x")
-lat <- ncvar_get(landmask2, "y", verbose = F)
+lon2 <- ncvar_get(landmask2, "x")
+lat2 <- ncvar_get(landmask2, "y", verbose = F)
 
-head(lon)
+head(lon2)
 
 # Read in data from the variable and verify the dimensions of the array
 landmask2.array <- ncvar_get(landmask2, "pws_mask_1k_u6w84") # 3dim array
 dim(landmask2.array)
 
 # Identify fill value and replace with NA
-fillvalue <- ncatt_get(landmask2, "pws_mask_1k_u6w84","missing_value")
-fillvalue
+fillvalue2 <- ncatt_get(landmask2, "pws_mask_1k_u6w84","missing_value")
+fillvalue2
 
-landmask2.array[landmask2.array == fillvalue$value] <- NA
+landmask2.array[landmask2.array == fillvalue2$value] <- NA
 
 # Close netcdf file
 nc_close(landmask2)
 
 # Create raster of landmask
 landmask2.r <- raster(t(landmask2.array), 
-                xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                xmn=min(lon2), xmx=max(lon2), ymn=min(lat2),ymx=max(lat2),
                 # CRS from metadata
-                crs=CRS("+proj=utm +zone=6 +datum=WGS84 +units=m +no_defs")) 
+                crs=CRS("+proj=utm +zone=6 +datum=WGS84 +units=m +no_defs")) #%>% 
+                # flip(direction="x") %>%
+                # flip(direction="y") 
 
 landmask2.df <- as.data.frame(landmask2.r, xy=TRUE)
 colnames(landmask2.df) <- c("x","y","water")
 
 plot(landmask2.r)
+
 
 # Map of study area with landmask data
 ggplot() +
@@ -197,7 +200,7 @@ sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
 st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
 
 # Save clean seali data 
-st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210727.shp")
+# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210727.shp")
 
 # Map of study area 
 ggplot() +
@@ -216,6 +219,32 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
   xlab("") 
 
 
+# Calculate average hourly movement rate (km/hr)
+  euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
+    latdiff <- lat2 - lat1
+    longdiff <- long2 - long1
+    distance <- sqrt(latdiff^2 + longdiff^2)/1000
+    timediff <- as.numeric(difftime(time2,time1,units=c("hours")))
+    return(distance / timediff)
+  }
+  
+  # Calculate euclidean speed
+  sealis <- sealis %>% 
+    mutate(x = st_coordinates(sealis)[,1], y = st_coordinates(sealis)[,2]) %>% 
+    group_by(DeployID) %>%
+    arrange(DeployID, Date) %>% 
+    mutate(speed = euclidean_speed(y, lag(y), x, lag(x), Date, lag(Date)))
+  
+  # Need to clean out inf and NA speed as well as those above a certain threhold
+  # How to determine threshold?
+  
+  sealispeed <- sealis %>% 
+    st_drop_geometry() %>% 
+    group_by(DeployID) %>% 
+    summarize(speed_avg = mean(speed, na.rm=T), speed_sd = sd(speed, na.rm=T))
+  
+
+  
 ``` 
 
 ## AIS Data
@@ -253,27 +282,27 @@ shippingbrick <- otherbrick + cargobrick + tankerbrick
 
 
 # There's a faster way to do this, but I'm too tired right now
-yearmon <- c("index_201811", "index_201812", "index_201901", "index_201902", "index_201903", "index_201904", "index_201905", "index_201906", "index_201907", "index_201908", "index_201909", "index_201910", "index_201911", "index_201912", "index_202001", "index_202002","index_202003", "index_202004", "index_202005", "inted_202006", "index_202007")
+yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/1"), "month")
 names(shippingbrick) <- yearmon
 names(fishingbrick) <- yearmon
 
 # Save raster bricks as netcdf files 
 # Save output file
-writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-              overwrite=TRUE, format="CDF",
-              varname="intensity", varunit="m",
-              longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
-              xname="lon",   yname="lat",zname="time",
-              zunit="numeric")
+# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="intensity", varunit="m",
+#               longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
 
-writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-              overwrite=TRUE, format="CDF",
-              varname="intensity", varunit="m",
-              longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
-              xname="lon",   yname="lat",zname="time",
-              zunit="numeric")
-
-# Plot results 
+# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="intensity", varunit="m",
+#               longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
+#               zname="time", xname="lon",   yname="lat")
+# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+#               overwrite=TRUE, format="CDF")
+# Plot results
 fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
 colnames(fish.df) <- c("x","y","intensity")
 
@@ -284,7 +313,7 @@ colnames(fish.df) <- c("x","y","intensity")
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_raster(data=fish.df, aes(x=x, y=y, fill=intensity), alpha=0.9) +
-  geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
+  # geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
   geom_sf(data=study, fill=NA, color="red") +
   scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
 
@@ -317,6 +346,25 @@ ggplot() +
 # writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
 
 ```
+
+
+```{r GEBCO landmask}
+landmask.test <- bathy
+landmask.test[landmask.test > 0] <- 1
+landmask.test[landmask.test < 0 | landmask.test == 0] <- NA
+
+landmask.testDf <- as.data.frame(landmask.test, xy=TRUE) %>% drop_na()
+colnames(landmask.testDf) <- c("x","y","land")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=landmask.testDf, aes(x=x, y=y, fill=land), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# writeRaster(landmask.test,"../Data_Processed/Landmask_GEBCO.tif")
+```
+
 
 ## Slope
 
@@ -401,7 +449,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
+# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 ```
 
@@ -657,7 +705,7 @@ ggplot() +
 ```
 
 
-```{r sea surface height - nrt}
+```{r sea surface height - nrt, eval=F}
 
 ssh2 <- nc_open("../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.nc")
 
@@ -746,7 +794,7 @@ temp <- addLayer(ssh_month, ssh2_month)
 #               zunit="numeric")
 ```
 
-```{r eddy kinetic energy - nrt}
+```{r eddy kinetic energy - nrt, eval=F}
 
 eke2 <- nc_open("../Data_Raw/dataset-duacs-nrt-global-merged-allsat-phy-l4_20200601-20200731.nc")
 
@@ -951,11 +999,11 @@ Test to make sure that the netcdf file saved correctly.
 
 ```{r testing netcdf file save, eval=FALSE}
 
-test <-nc_open("../Data_Processed/WIND_Monthly_cropped_4336.nc")
+test <-nc_open("../Data_Processed/WIND_Monthly.nc")
 
 # Save metadata to a text file
 {
-  sink('../Data_Processed/WIND_Monthly_cropped_4336.txt')
+  sink('../Data_Processed/WIND_Monthly.txt')
   print(test)
   sink()
 }
@@ -980,7 +1028,7 @@ test.array[test.array == fillvalue$value] <- NA
 nc_close(test)
 
 test_brick <- brick(test.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
-                crs=CRS(prj)) 
+                crs=prj) 
 
 plot(test_brick[[1]])
 
@@ -1120,7 +1168,7 @@ I used this tutorial on indexing [raster time series](https://cyberhelp.sesync.o
 
 For calculating monthly mean values in a [raster brick](https://gis.stackexchange.com/questions/237272/mean-by-month-on-r-stacked-raster). 
 
-```{r merging sea lion locs with SST data, warnings=F, messages=F}
+```{r merging sea lion locs with SST data, warnings=F, messages=F, eval=F}
 
 # Put seali date into same format as raster brick names
 sealis$yearmon <- format(sealis$Date, format="%Y%m")
@@ -1153,7 +1201,7 @@ unique(sealis$DeployID)
 ```
 
 
-```{r extra fun stuff}
+```{r extra fun stuff, eval=F}
 # Correlation between dive temperature and ste
 sealitemps <- st_read("../Data_Raw/locs_depths_temps_geodbase_20201130.gdb",
                     layer=seali$name[10]) %>% st_transform(prj)
