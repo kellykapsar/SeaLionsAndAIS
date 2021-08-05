@@ -164,29 +164,55 @@ ggplot() +
 
 ```{r sea lion gdb processing}
 # Import sea lion location geodatabase (downloaded from Google Drive folder)
-seali <- st_layers("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb")
-seali$name # list of layers 
+# seali <- st_layers("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb")
+seali <- list.files("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001")
+# seali$name # list of layers 
 
-# Determine all layers of interest within gdb 
-lyrs <- grep("_loc", seali$name)
+# Determine all layers of interest within gdb
+# lyrs <- grep("_loc", seali$name)
+lyrs <- grep("S-Locations", seali)
+lyrs2 <- grep("D-Locations", seali)
+
+lyrs <- append(lyrs, lyrs2)
 
 # Create initial sf object with data from one sea lion
-sealis <- st_read("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb",
-                    layer=seali$name[lyrs[1]])
+lyrs <- lapply(lyrs, function(x){st_read(paste0("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001/",seali[x]))})
+
+# Make each table into an sf object
+# lyrs <- lapply(lyrs, function(x){st_as_sf(x, coords = c("Longitude","Latitude"), crs=4326)})
+
+# Separate first table layer
+sealis <- lyrs[[1]]
 
 # Remove that layer from the layers of interest list
 lyrs <- lyrs[2:length(lyrs)]
-
 # Append all other layers of interest onto the main location data set 
 for(i in 1:length(lyrs)){
-  temp <- st_read("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb",
-                    layer=seali$name[lyrs[i]])
-  colnames(temp) <- colnames(sealis)
+  temp <- lyrs[[i]]
   sealis <- rbind(sealis, temp)
 }
 
+# Fix time field 
+# (Have to do it separately for gps and argos)
+sealis$Date_old <- sealis$Date
+gps <- sealis[sealis$Type == "FastGPS",]
+argos <- sealis[sealis$Type == "Argos",]
+
+
+argos$Date <- as.POSIXct(argos$Date, format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+# All but 353 gps points are in the format of days since 12/30/1899
+# Need to convert those to Dates and then also fix the other 300ish points 
+# Internet said it should be days since 1/1/1900, but that didn't work. No idea why. 
+# But this matches up with the Microsoft Access database
+gps$Date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+ 
+  as.difftime(as.numeric(gps$Date),units="days")
+gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+
+sealis_old <- sealis 
+sealis <- rbind(gps, argos)
+
 # Remove low quality points 
-sealis <- sealis[-which(sealis$Quality %in% c("A","B","0")),]
+sealis <- sealis[-which(sealis$Quality %in% c("A","B","0","Z")),]
 # sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
 # sealis <- sealis[which(sealis$inbounds == TRUE),]
 
@@ -196,11 +222,26 @@ test <- duplicated(data.frame(sealis))
 # Remove duplicated rows 
 sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
 
+# Remove points from same time and SSL (keep smaller error radius)
+sealis$ptID <- 1:length(sealis$DeployID)
+test <- sealis %>% filter(Type == "Argos") %>% group_by(DeployID, Date) %>% slice(which.min(Error.radius))
+test2 <- filter(sealis, Type != "Argos")
+sealis <- rbind(test, test2)
+
+# Convert to spatial object
+sealis <- st_as_sf(sealis, coords=c("Longitude", "Latitude"), crs=4326)
+
 # Transform geometry to correct projection 
 st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
 
+# Remove blank columns 
+sealis <- sealis[,-c(11:15)]
+
 # Save clean seali data 
-# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210727.shp")
+sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
+               ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
+
+st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210805.shp")
 
 # Map of study area 
 ggplot() +
@@ -368,6 +409,7 @@ ggplot() +
 
 # writeRaster(landmask.test,"../Data_Processed/Landmask_GEBCO.tif")
 ```
+
 ```{r average number of non-land points per sea lion per time period}
 
 
@@ -398,7 +440,7 @@ ptcts <- left_join(ptcts_month, ptcts_biweek, by="DeployID")
 ptcts <- left_join(ptcts, ptcts_week, by="DeployID")
 ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
 
-write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
+# write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
 
 # watersealidata <- data.frame(stat=c(), monthly=c(), biweekly=c(), weekly=c(), daily=c())
 # watersealidata[1,"stat"] <- "mean"
@@ -409,7 +451,6 @@ write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
 
 
 ```
-
 
 ## Slope
 
@@ -482,6 +523,29 @@ Calculate distance to nearest cell between 400 and 500 m depth.
 
 ```{r 500m shelf break}
 dist500m <- bathy
+
+#################################################
+# Create a transition matrix 
+# using this link: https://gis.stackexchange.com/questions/244364/least-cost-path-barrier-r-gdistance
+# and this one: file:///C:/Users/Kelly%20Kapsar/Downloads/v76i13%20(1).pdf
+# as tutorials. Not sure if i'm doing it correctly 
+library(gdistance)
+test <- gdistance::transition(landmask, transitionFunction=mean, directions=8)
+test2 <- geoCorrection(test, type="c")
+
+origin <- rasterToPoints(dist500m)[,1:2]
+goal <- dist500m
+values(goal)[values(dist500m) <= -400 | values(dist500m) >= -500] = NA
+goal <- !is.na(goal)
+goal <- rasterToPoints(goal)[,1:2]
+
+plot(raster(test2))
+sPath1 <- shortestPath(test2, origin, goal, output="SpatialLines")
+lines(sPath1)
+
+test <- gdistance::transition(dist500m, transitionFunction=mean, directions=8)
+#################################################################
+
 values(dist500m)[values(dist500m) >= -400 | values(dist500m) <= -500] = NA
 dist500m <- raster::distance(dist500m)
 
