@@ -241,7 +241,7 @@ sealis <- sealis[,-c(11:15)]
 sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
                ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
 
-st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210805.shp")
+# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210805.shp")
 
 # Map of study area 
 ggplot() +
@@ -270,8 +270,10 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
   }
   
   # Calculate euclidean speed
+  sealis$x <- st_coordinates(sealis)[,1]
+  sealis$y <- st_coordinates(sealis)[,2]
+  
   sealis <- sealis %>% 
-    mutate(x = st_coordinates(sealis)[,1], y = st_coordinates(sealis)[,2]) %>% 
     group_by(DeployID) %>%
     arrange(DeployID, Date) %>% 
     mutate(speed = euclidean_speed(y, lag(y), x, lag(x), Date, lag(Date)))
@@ -289,7 +291,7 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
 ``` 
 
 ## AIS Data
-```{r ais, warning=FALSE}
+```{r ais, warning=FALSE, eval=F}
 
 # Boundary for AIS data acquisition
 aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
@@ -366,7 +368,8 @@ Bathymetry data were collected from the [General Bathymetric Chart of the Oceans
 
 ```{r bathymetry, warning=FALSE}
 
-# bathymarmap <- marmap::readGEBCO.bathy("../Data_Raw/GEBCO_2020_09_Nov_2020_nc/gebco_2020_n61.0_s55.0_w-155.0_e-147.0.nc")
+# bathymarmap <- marmap::getNOAA.bathy(lon1=-155, lon2=-143, lat1=56, lat2=62, resolution=3) 
+# # resolution units are in minutes (3 minutes = 0.05 degrees)
 
 # Import raster, reproject to 4336, and crop to study area
 bathy <- raster::raster("../Data_Raw/GEBCO_2020_21_Jul_2021/gebco_2020_n62.0_s56.0_w-155.0_e-143.0.tif") %>% projectRaster(crs=prj) %>% raster::crop(study)
@@ -522,44 +525,25 @@ ggplot() +
 Calculate distance to nearest cell between 400 and 500 m depth. 
 
 ```{r 500m shelf break}
-dist500m <- bathy
 
-#################################################
-# Create a transition matrix 
-# using this link: https://gis.stackexchange.com/questions/244364/least-cost-path-barrier-r-gdistance
-# and this one: file:///C:/Users/Kelly%20Kapsar/Downloads/v76i13%20(1).pdf
-# as tutorials. Not sure if i'm doing it correctly 
-library(gdistance)
-test <- gdistance::transition(landmask, transitionFunction=mean, directions=8)
-test2 <- geoCorrection(test, type="c")
+# Based on this tutorial: 
+# https://www.r-bloggers.com/2020/02/three-ways-to-calculate-distances-in-r/
 
-origin <- rasterToPoints(dist500m)[,1:2]
-goal <- dist500m
-values(goal)[values(dist500m) <= -400 | values(dist500m) >= -500] = NA
-goal <- !is.na(goal)
-goal <- rasterToPoints(goal)[,1:2]
+bathy2 <- bathy
 
-plot(raster(test2))
-sPath1 <- shortestPath(test2, origin, goal, output="SpatialLines")
-lines(sPath1)
+land <- bathy2 > 0
+shallow <- bathy2 > -400
+deep <- bathy2 < -500 
 
-test <- gdistance::transition(dist500m, transitionFunction=mean, directions=8)
-#################################################################
+bathy2[!shallow & !deep] <- 2
+bathy2[land] <- 1
 
-values(dist500m)[values(dist500m) >= -400 | values(dist500m) <= -500] = NA
-dist500m <- raster::distance(dist500m)
+dist500m <- gridDistance(bathy2, origin = 2,
+                  omit = 1)/1000
 
-dist500m.df <- as.data.frame(dist500m, xy=TRUE)  %>% drop_na()
-colnames(dist500m.df) <- c("x","y","dist500m")
+dist500m <- dist500m %>% raster::crop(study)
 
-ggplot() +
-  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=dist500m.df, aes(x=x, y=y, fill=dist500m), alpha=0.9) +
-  scale_fill_gradient2() +
-  geom_sf(data=study, fill=NA, color="red")
-
-# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
-
+writeRaster(dist500m, "../Data_Processed/Dist500m_New.tif")
 ```
 
 ## Sea Surface Height
