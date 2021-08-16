@@ -372,7 +372,9 @@ Bathymetry data were collected from the [General Bathymetric Chart of the Oceans
 # # resolution units are in minutes (3 minutes = 0.05 degrees)
 
 # Import raster, reproject to 4336, and crop to study area
-bathy <- raster::raster("../Data_Raw/GEBCO_2020_21_Jul_2021/gebco_2020_n62.0_s56.0_w-155.0_e-143.0.tif") %>% projectRaster(crs=prj) %>% raster::crop(study)
+bathy <- raster::raster("../Data_Raw/GEBCO_16_Aug_2021/gebco_2021_n64.0_s54.0_w-157.0_e-141.0.tif") %>%
+  projectRaster(crs=prj) %>%
+  raster::crop(study)
 
 bathyDf <- as.data.frame(bathy, xy=TRUE) %>% drop_na()
 colnames(bathyDf) <- c("x","y","depth")
@@ -410,7 +412,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# writeRaster(landmask.test,"../Data_Processed/Landmask_GEBCO.tif")
+# writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif")
 ```
 
 ```{r average number of non-land points per sea lion per time period}
@@ -465,9 +467,6 @@ slope <- terrain(bathy, opt="slope", unit="radians", neighbors=8)
 slopeDf <- as.data.frame(slope, xy=TRUE)  %>% drop_na()
 colnames(slopeDf) <- c("x","y","slope")
 
-# Save raster object 
-# raster::writeRaster(bathy, "../Data_Processed/bathemtry_GEBCO_cropped_4336.tif")
-
 # Map of study area with bathymetric data 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
@@ -506,8 +505,19 @@ ggplot() +
 # Calculate distance to nearest NA cell for all cells in landmask raster 
 distland2 <- bathy
 values(distland2)[values(distland2) <= 0] = NA
-distland2 <- raster::distance(distland2)
 
+# ID cells on land and water
+land <- distland2 > 0
+water <- distland2 <= 0
+
+# Land = 1, isobath = 2
+distland2[water] <- NA
+distland2[land] <- 2
+
+# Calculate distance to land 
+distland2 <- gridDistance(distland2, origin = 2)/1000
+
+# Plot results
 distland2.df <- as.data.frame(distland2, xy=TRUE) %>% drop_na()
 colnames(distland2.df) <- c("x","y","distland")
 
@@ -517,6 +527,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+# Save output
 # writeRaster(distland2, "../Data_Processed/DistLand.tif")
 ```
 
@@ -545,19 +556,19 @@ dist500m <- gridDistance(bathy2, origin = 2,
                   omit = 1)/1000
 
 # Crop to study area 
-dist500m <- dist500m %>% raster::crop(study)
+dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Save results
-# writeRaster(dist500m, "../Data_Processed/Dist500m_New.tif")
+# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 
 # Plot results
 dist500m.df <- as.data.frame(dist500m, xy=TRUE) %>% drop_na()
-colnames(dist500m.df) <- c("x","y","distland")
+colnames(dist500m.df) <- c("x","y","dist500")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=dist500m.df, aes(x=x, y=y, fill=distland), alpha=0.9) +
+  geom_raster(data=dist500m.df, aes(x=x, y=y, fill=dist500), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 ```
@@ -674,6 +685,8 @@ ggplot() +
 
 # animate(ssh_month, pause=0.5, n=1)
 
+writeRaster(ssh_month, "../Data_Processed/SSH_Monthly_20181101-20200531.tif", options="INTERLEAVE=BAND")
+
 # Save output file
 # writeRaster(ssh_month, "../Data_Processed/SSH_Monthly_20181101-20200531.nc",
 #               overwrite=TRUE, format="CDF",
@@ -723,7 +736,7 @@ nc_close(eke)
 # vele = surface_geostrophic_eastward_sea_water_velocity
 # veln = surface_geostrophic_northward_sea_water_velocity
 
-# Calculation from Bornemann et al. 2021 
+# Calculation from Wege et al. 2021 
 # "eke = 0.5(curru2 + currv2);where curru= horizontal geostrophic velocity; currv = vertical geostrophic velocity" 
 
 eke.array <- 0.5*(vele.array + veln.array)
