@@ -291,7 +291,7 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
 ``` 
 
 ## AIS Data
-```{r ais, warning=FALSE, eval=F}
+```{r ais, warning=FALSE}
 
 # Boundary for AIS data acquisition
 aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
@@ -322,7 +322,9 @@ tankerbrick <- raster::brick(tankerras) %>% raster::mask(aisbound_sp)
 
 shippingbrick <- otherbrick + cargobrick + tankerbrick
 
-
+# Convert units to km 
+shippingbrick <- shippingbrick/1000
+fishingbrick <- fishingbrick/1000
 
 # There's a faster way to do this, but I'm too tired right now
 yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/1"), "month")
@@ -331,18 +333,18 @@ names(fishingbrick) <- yearmon
 
 # Save raster bricks as netcdf files 
 # Save output file
-# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-#               overwrite=TRUE, format="CDF",
-#               varname="intensity", varunit="m",
-#               longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
-#               xname="lon",   yname="lat",zname="time",
-#               zunit="numeric")
+writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
 
-# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-#               overwrite=TRUE, format="CDF",
-#               varname="intensity", varunit="m",
-#               longname="Shipping intensity (m travelled per cell) -- raster brick to netCDF",
-#               zname="time", xname="lon",   yname="lat")
+writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              zname="time", xname="lon",   yname="lat")
 # writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
 #               overwrite=TRUE, format="CDF")
 # Plot results
