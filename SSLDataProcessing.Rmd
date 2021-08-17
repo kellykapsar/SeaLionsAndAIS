@@ -1,0 +1,223 @@
+---
+title: "SSLDataProcessing"
+author: "Kelly Kapsar"
+date: "8/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries. 
+```{r message=FALSE, warning=FALSE}
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(ggplot2)
+
+```
+
+Study area boundaries. 
+
+```{r study area warning=FALSE}
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
+# Create study area polygon
+coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
+study <- coords %>% 
+         st_as_sf(coords = c("lon", "lat"), crs=4326) %>% 
+         group_by(id) %>% 
+         summarize(geometry = st_combine(geometry)) %>%  
+         st_cast("POLYGON") %>% 
+         st_transform(prj)
+# st_write(study, "../Data_Raw/studyarea.shp")
+
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(prj) %>%  st_buffer(0)
+
+# Crop basemap to buffered extent of study area 
+study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
+basemap.crop <- st_crop(basemap, study.buff)
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Get latlong coordinates for study area for use in downloading other data sets
+studylatlon <- study %>% st_transform(4269) %>% st_bbox()
+
+```
+
+## Sea Lion location geodatabase
+
+```{r sea lion gdb processing}
+# Import sea lion location geodatabase (downloaded from Google Drive folder)
+# seali <- st_layers("../Data_Raw/SSL Adult Female Analysis 2018-20.gdb")
+seali <- list.files("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001")
+# seali$name # list of layers 
+
+# Determine all layers of interest within gdb
+# lyrs <- grep("_loc", seali$name)
+lyrs <- grep("S-Locations", seali)
+lyrs2 <- grep("D-Locations", seali)
+
+lyrs <- append(lyrs, lyrs2)
+
+# Create initial sf object with data from one sea lion
+lyrs <- lapply(lyrs, function(x){st_read(paste0("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001/",seali[x]))})
+
+# Make each table into an sf object
+# lyrs <- lapply(lyrs, function(x){st_as_sf(x, coords = c("Longitude","Latitude"), crs=4326)})
+
+# Separate first table layer
+sealis <- lyrs[[1]]
+
+# Remove that layer from the layers of interest list
+lyrs <- lyrs[2:length(lyrs)]
+# Append all other layers of interest onto the main location data set 
+for(i in 1:length(lyrs)){
+  temp <- lyrs[[i]]
+  sealis <- rbind(sealis, temp)
+}
+
+# Fix time field 
+# (Have to do it separately for gps and argos)
+sealis$Date_old <- sealis$Date
+gps <- sealis[sealis$Type == "FastGPS",]
+argos <- sealis[sealis$Type == "Argos",]
+
+
+argos$Date <- as.POSIXct(argos$Date, format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+# All but 353 gps points are in the format of days since 12/30/1899
+# Need to convert those to Dates and then also fix the other 300ish points 
+# Internet said it should be days since 1/1/1900, but that didn't work. No idea why. 
+# But this matches up with the Microsoft Access database
+gps$Date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+ 
+  as.difftime(as.numeric(gps$Date),units="days")
+gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+
+sealis_old <- sealis 
+sealis <- rbind(gps, argos)
+
+# Remove low quality points 
+sealis <- sealis[-which(sealis$Quality %in% c("A","B","0","Z")),]
+# sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
+# sealis <- sealis[which(sealis$inbounds == TRUE),]
+
+############ CHECK ON THIS ###############
+# 40 Duplicated rows (excluding geometry column)
+test <- duplicated(data.frame(sealis))
+# Remove duplicated rows 
+sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
+
+# Remove points from same time and SSL (keep smaller error radius)
+sealis$ptID <- 1:length(sealis$DeployID)
+test <- sealis %>% filter(Type == "Argos") %>% group_by(DeployID, Date) %>% slice(which.min(Error.radius))
+test2 <- filter(sealis, Type != "Argos")
+sealis <- rbind(test, test2)
+
+# Convert to spatial object
+sealis <- st_as_sf(sealis, coords=c("Longitude", "Latitude"), crs=4326)
+
+# Transform geometry to correct projection 
+st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
+
+# Remove blank columns 
+sealis <- sealis[,-c(11:15)]
+
+# Save clean seali data 
+sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
+               ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
+
+# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210805.shp")
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")+
+  geom_sf(data=sealis, aes(color=DeployID))
+
+# Tag duration timeline 
+timeline <- sealis %>% st_drop_geometry() %>% group_by(DeployID) %>% summarize(starttag = as.Date(min(Date)), endtag=as.Date(max(Date)))
+
+ggplot(timeline, aes(x=starttag, y= DeployID)) +
+  geom_linerange(aes(xmin = starttag, xmax = endtag),color = "black",size = 2) + 
+  scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
+  theme(axis.text.x=element_text(angle=45, hjust=1))+
+  ylab("") +
+  xlab("") 
+
+
+# Calculate average hourly movement rate (km/hr)
+  euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
+    latdiff <- lat2 - lat1
+    longdiff <- long2 - long1
+    distance <- sqrt(latdiff^2 + longdiff^2)/1000
+    timediff <- as.numeric(difftime(time2,time1,units=c("hours")))
+    return(distance / timediff)
+  }
+  
+  # Calculate euclidean speed
+  sealis$x <- st_coordinates(sealis)[,1]
+  sealis$y <- st_coordinates(sealis)[,2]
+  
+  sealis <- sealis %>% 
+    group_by(DeployID) %>%
+    arrange(DeployID, Date) %>% 
+    mutate(speed = euclidean_speed(y, lag(y), x, lag(x), Date, lag(Date)))
+  
+  # Need to clean out inf and NA speed as well as those above a certain threhold
+  # How to determine threshold?
+  
+  sealispeed <- sealis %>% 
+    st_drop_geometry() %>% 
+    group_by(DeployID) %>% 
+    summarize(speed_avg = mean(speed, na.rm=T), speed_sd = sd(speed, na.rm=T))
+  
+``` 
+
+```{r average number of non-land points per sea lion per time period}
+# Read in landmask 
+landmask <- st_read("../Data_Procesed/Landmask_GEBCO.tif")
+
+sealis$land <- raster::extract(landmask, sealis)
+sum(sealis$land, na.rm=T)/length(sealis$land)*100
+
+watersealis <- sealis[is.na(sealis$land),]
+
+watersealis$fortnight <- ceiling(lubridate::week(watersealis$Date) / 2)
+watersealis$weekofyear <- lubridate::week(watersealis$Date)
+watersealis$month <- lubridate::month(watersealis$Date)
+watersealis$year <- lubridate::year(watersealis$Date)
+watersealis$dayofyear <- lubridate::date(watersealis$Date)
+
+ptcts_month <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, month) %>% summarize(n=n())
+ptcts_month <- ptcts_month%>% group_by(DeployID) %>% summarize(meanmonthlypts = mean(n))
+
+ptcts_biweek <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, fortnight) %>% summarize(n=n())
+ptcts_biweek <- ptcts_biweek%>% group_by(DeployID) %>% summarize(meanbiweekpts = mean(n))
+
+ptcts_week <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, weekofyear) %>% summarize(n=n())
+ptcts_week <- ptcts_week%>% group_by(DeployID) %>% summarize(meanweekpts = mean(n))
+
+ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, dayofyear) %>% summarize(n=n())
+ptcts_day <- ptcts_day%>% group_by(DeployID) %>% summarize(meandaypts = mean(n))
+
+ptcts <- left_join(ptcts_month, ptcts_biweek, by="DeployID")
+ptcts <- left_join(ptcts, ptcts_week, by="DeployID")
+ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
+
+# write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
+
+# watersealidata <- data.frame(stat=c(), monthly=c(), biweekly=c(), weekly=c(), daily=c())
+# watersealidata[1,"stat"] <- "mean"
+# watersealidata[1,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], mean))
+# 
+# watersealidata[2,"stat"] <- "stdev"
+# watersealidata[2,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], sd))
+
+
+```
