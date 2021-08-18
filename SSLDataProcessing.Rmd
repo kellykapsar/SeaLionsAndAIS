@@ -16,6 +16,9 @@ library(dplyr)
 library(sf)
 library(raster)
 library(ggplot2)
+library(scales)
+library(ggmap)
+library(leaflet)
 
 ```
 
@@ -100,7 +103,20 @@ gps$Date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+
 gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
 
 sealis_old <- sealis 
+
+# Rejoin Argos and GPS data 
 sealis <- rbind(gps, argos)
+
+# Round date to minute scale 
+sealis$Date <- round(sealis$Date, "mins")
+
+
+# Create various date reference categories for future modeling 
+sealis$fortnight <- ceiling(lubridate::week(sealis$Date) / 2)
+sealis$weekofyear <- lubridate::week(sealis$Date)
+sealis$month <- lubridate::month(sealis$Date)
+sealis$year <- lubridate::year(sealis$Date)
+sealis$dayofyear <- lubridate::date(sealis$Date)
 
 # Remove low quality points 
 sealis <- sealis[-which(sealis$Quality %in% c("A","B","0","Z")),]
@@ -122,8 +138,16 @@ sealis <- rbind(test, test2)
 # Convert to spatial object
 sealis <- st_as_sf(sealis, coords=c("Longitude", "Latitude"), crs=4326)
 
+# Keep latitude and longitude columns
+sealis$lat <- st_coordinates(sealis)[,"Y"]
+sealis$lon <- st_coordinates(sealis)[,"X"]
+
 # Transform geometry to correct projection 
 st_geometry(sealis) <- st_transform(st_geometry(sealis), prj)
+
+# Projected coordinate columns
+sealis$northing <- st_coordinates(sealis)[,"Y"]
+sealis$easting <- st_coordinates(sealis)[,"X"]
 
 # Remove blank columns 
 sealis <- sealis[,-c(11:15)]
@@ -131,8 +155,6 @@ sealis <- sealis[,-c(11:15)]
 # Save clean seali data 
 sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
                ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
-
-# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210805.shp")
 
 # Map of study area 
 ggplot() +
@@ -151,48 +173,77 @@ ggplot(timeline, aes(x=starttag, y= DeployID)) +
   xlab("") 
 
 
-# Calculate average hourly movement rate (km/hr)
-  euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
-    latdiff <- lat2 - lat1
-    longdiff <- long2 - long1
-    distance <- sqrt(latdiff^2 + longdiff^2)/1000
-    timediff <- as.numeric(difftime(time2,time1,units=c("hours")))
-    return(distance / timediff)
-  }
-  
-  # Calculate euclidean speed
-  sealis$x <- st_coordinates(sealis)[,1]
-  sealis$y <- st_coordinates(sealis)[,2]
-  
-  sealis <- sealis %>% 
-    group_by(DeployID) %>%
-    arrange(DeployID, Date) %>% 
-    mutate(speed = euclidean_speed(y, lag(y), x, lag(x), Date, lag(Date)))
-  
-  # Need to clean out inf and NA speed as well as those above a certain threhold
-  # How to determine threshold?
-  
-  sealispeed <- sealis %>% 
-    st_drop_geometry() %>% 
-    group_by(DeployID) %>% 
-    summarize(speed_avg = mean(speed, na.rm=T), speed_sd = sd(speed, na.rm=T))
-  
 ``` 
+
+
+```{r available location -- radius method}
+
+# Calculating a (average hrly movement rate) for each SSL (km/hr) and b (sd of movement rate)
+euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
+  latdiff <- lat2 - lat1
+  longdiff <- long2 - long1
+  distance <- sqrt(latdiff^2 + longdiff^2)/1000
+  timediff <- as.numeric(difftime(time2,time1,units=c("hours")))
+  return(distance / timediff)
+}
+  
+
+# Calculate Euclidean speed
+sealis <- sealis %>% 
+  group_by(DeployID) %>%
+  arrange(DeployID, Date) %>% 
+  mutate(difftime = timediff <- as.numeric(difftime(Date,lag(Date),units=c("mins"))),
+         speed = euclidean_speed(northing, lag(northing), easting, lag(easting), Date, lag(Date)))
+
+# Identify locations with another signal occurring within the same minute 
+sameminute <- sealis %>% st_drop_geometry() %>% group_by(DeployID, Date) %>% tally() %>% filter(n > 1)
+
+rm <- list()
+
+for(i in 1:length(sameminute$DeployID)){
+  t <- sealis[which(sealis$DeployID == sameminute$DeployID[i] & sealis$Date == sameminute$Date[i]),]
+  if(length(unique(t$Type)) > 1){
+  for(j in 1:length(t$DeployID)){
+    if(t$Type[j] != "FastGPS"){ rm <- append(rm, t$ptID[j])}
+  }
+  }
+  if(length(unique(t$Type)) == 1){rm <- append(rm, t$ptID[1])}
+}
+
+# Remove observations from the data set 
+sealis <- sealis[-which(sealis$ptID %in% rm),]
+sealis <- sealis[-which(sealis$ptID == 48742),] # manually remove last sameminute point 
+
+# Recalculate Euclidean speed
+sealis <- sealis %>% 
+  group_by(DeployID) %>%
+  arrange(DeployID, Date) %>% 
+  mutate(difftime = timediff <- as.numeric(difftime(Date,lag(Date),units=c("mins"))),
+         speed = euclidean_speed(northing, lag(northing), easting, lag(easting), Date, lag(Date)))
+
+# Need to clean out inf and NA speed as well as those above a certain threhold
+# How to determine threshold?
+sealispeed <- sealis %>% 
+  st_drop_geometry() %>% 
+  group_by(DeployID) %>% 
+  summarize(speed_avg = mean(speed, na.rm=T), speed_sd = sd(speed, na.rm=T))
+
+
+# Remove points over 75 km/hr as unreasonable speeds
+sealis <- sealis %>% filter(speed < 50)
+
+
+# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210818.shp")
+```
 
 ```{r average number of non-land points per sea lion per time period}
 # Read in landmask 
-landmask <- st_read("../Data_Procesed/Landmask_GEBCO.tif")
+landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
 
 sealis$land <- raster::extract(landmask, sealis)
 sum(sealis$land, na.rm=T)/length(sealis$land)*100
 
 watersealis <- sealis[is.na(sealis$land),]
-
-watersealis$fortnight <- ceiling(lubridate::week(watersealis$Date) / 2)
-watersealis$weekofyear <- lubridate::week(watersealis$Date)
-watersealis$month <- lubridate::month(watersealis$Date)
-watersealis$year <- lubridate::year(watersealis$Date)
-watersealis$dayofyear <- lubridate::date(watersealis$Date)
 
 ptcts_month <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, month) %>% summarize(n=n())
 ptcts_month <- ptcts_month%>% group_by(DeployID) %>% summarize(meanmonthlypts = mean(n))
@@ -218,6 +269,33 @@ ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
 # 
 # watersealidata[2,"stat"] <- "stdev"
 # watersealidata[2,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], sd))
+
+```
+
+```{r plot individual SSL locs}
+
+ssl781 <- sealis %>% filter(DeployID == "SSL2019781KOD")
+
+# Leaflet map 
+leaflet(ssl781)%>%addTiles()%>%
+  addCircles(~lon, ~lat)
+
+# ggmap 
+map <- get_map(location = c(lon = mean(ssl781$lon), 
+                            lat = mean(ssl781$lat)), zoom = 7,
+               maptype = "hybrid", source = "google")
+
+ggmap(map) + 
+  geom_point(data=ssl781, aes(x=lon, y=lat), size=2.5)
+
+
+#' ### Using ggplot without a background
+#' 
+#' Use separate axes for each individual (add scales="free" to facet_wrap)
+#+fig.height=12, fig.width=12
+ggplot(sealis, aes(x=lon, y=lat))+geom_point()+
+  facet_wrap(~DeployID, scales="free")
+
 
 
 ```
