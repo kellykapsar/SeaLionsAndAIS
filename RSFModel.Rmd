@@ -73,35 +73,7 @@ fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
 used <- readRDS("../Data_Processed/watersealis.rds")
 usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
 
-# Create functions 
-custom_extract_avail <- function(usedbuff, covarstack, npts = 5){
-  df <-  as.data.frame(sampleRandom(x=covarstack, size = npts, na.rm = TRUE, ext = as(usedbuff, "Spatial"), xy = TRUE))
-  df$Used <- 0
-  df$Date <- usedbuff$Date
-  df$DeployID <- usedbuff$DeployID
-  return(df)
-}
-
-custom_extract_used <- function(used, distland, dist500m, depth){
-  pts <- st_as_sf(df, coords = c("x", "y"), crs=st_crs(used))
-  pts$Used <- 0
-  pts$Date <- used$Date
-  pts$DeployID <- used$DeployID
-  pts$Distland <- raster::extract(distland, as(pts, "Spatial"), cellnumbers=F)
-  pts$Dist500m <- raster::extract(dist500m, as(pts, "Spatial"), cellnumbers=F)
-  pts$Depth <- raster::extract(depth, as(pts, "Spatial"), cellnumbers=F)
-  return(pts)
-}
-
-# Runing function as a loop takes ~15 hrs.... 
-start <- proc.time()
-q <- lapply(1:length(usedbuff$DeployID), 
-            function(x){custom_extract_avail(usedbuff[x,], covarstack=p)})
-q <- do.call(rbind, q)
-proc.time()-start
-
-
-### Spatiotemporal extract using amt package
+# Convert used locations to trk objects using amt package
 library(amt)
 
 trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=Date, id = DeployID, 
@@ -115,25 +87,45 @@ class(trk) <- trk.class
 #' Now, we can transform back to geographic coordinates
 trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
 
-# ID available points
+# Extract covariate data at used locations 
+f <- extract_covariates_var_time(trk, fish, when="any", max_time= days(16), name_covar="Fishing")
+s <- extract_covariates_var_time(trk, ship, when="any", max_time= days(16), name_covar="Shipping")
 
+
+
+
+############################### IDENTIFYING AVAILABLE POINTS IN OCEAN 
+
+# ID available points based on previously calculated radii
+# Accounts for points on land 
+custom_extract_avail <- function(usedbuff, covarstack, npts = 5){
+  df <-  as.data.frame(sampleRandom(x=covarstack, size = npts, na.rm = TRUE, ext = as(usedbuff, "Spatial"), xy = TRUE))
+  df$Used <- 0
+  df$Date <- usedbuff$Date
+  df$DeployID <- usedbuff$DeployID
+  return(df)
+}
+
+# Runing function as a loop takes ~15 hrs.... 
 start <- proc.time()
-q <- lapply(1:length(used$DeployID), function(x){random_points(st_buffer(used[x,], dist=used$radius[x]), n=5)})
+q <- lapply(1:length(usedbuff$DeployID), 
+            function(x){custom_extract_avail(usedbuff[x,], covarstack=covarstack)})
 avail <- do.call(rbind, q)
 proc.time()-start
 
 
-test <- do.call(rbind, test)
+# Doesn't account for points on land 
+q <- st_sample(usedbuff[1:10,], size = rep(5, length(usedbuff$DeployID[1:10])), by_polygon=TRUE)
 
-test2 <- extract_covariates_var_time(trk, fish, when="any", max_time= days(16))
-test <- extract_covariates_var_time(trk, ship, when="any", max_time= days(16))
+# Doesn't account for points on land
+start <- proc.time()
+q <- lapply(1:length(usedbuff$DeployID), 
+            function(x){random_points(usedbuff[x,], n=5)})
+avail <- do.call(rbind, q)
+proc.time()-start
 
 
-t <- as.data.frame(amt::extract_covariates(test, covarstack))
 
-temp <- left_join(used, test, by=c("DeployID" = "id", "Date" = "t_"))
-
-test.df <- data.frame(test)
 
 
 
