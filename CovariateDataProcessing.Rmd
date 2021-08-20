@@ -198,9 +198,12 @@ shippingbrick <- shippingbrick/1000
 fishingbrick <- fishingbrick/1000
 
 # There's a faster way to do this, but I'm too tired right now
-yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/1"), "month")
+yearmon <- seq(as.Date("2018/11/15"), as.Date("2020/7/15"), "month")
 names(shippingbrick) <- yearmon
 names(fishingbrick) <- yearmon
+
+shippingbrick <- raster::setZ(shippingbrick, yearmon)
+fishingbrick <- raster::setZ(fishingbrick, yearmon)
 
 # Save raster bricks as netcdf files 
 # Save output file
@@ -211,11 +214,15 @@ writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
               xname="lon",   yname="lat",zname="time",
               zunit="numeric")
 
+saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+
 writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
               overwrite=TRUE, format="CDF",
               varname="intensity", varunit="km",
               longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
               zname="time", xname="lon",   yname="lat")
+
+saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
 # writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
 #               overwrite=TRUE, format="CDF")
 # Plot results
