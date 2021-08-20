@@ -218,22 +218,27 @@ sealis <- sealis[-which(sealis$ptID == 48742),] # manually remove last sameminut
 sealis <- sealis %>% 
   group_by(DeployID) %>%
   arrange(DeployID, Date) %>% 
-  mutate(difftime = timediff <- as.numeric(difftime(Date,lag(Date),units=c("mins"))),
-         speed = euclidean_speed(northing, lag(northing), easting, lag(easting), Date, lag(Date)))
+  mutate(timediff = as.numeric(difftime(Date,lag(Date),units=c("mins"))),
+         speed = euclidean_speed(northing, lag(northing), easting, lag(easting), 
+                                 Date, lag(Date)))
+
+# Remove points over 75 km/hr as unreasonable speeds
+sealis <- sealis %>% filter(speed < 50)
 
 # Need to clean out inf and NA speed as well as those above a certain threhold
 # How to determine threshold?
 sealispeed <- sealis %>% 
   st_drop_geometry() %>% 
   group_by(DeployID) %>% 
-  summarize(speed_avg = mean(speed, na.rm=T), speed_sd = sd(speed, na.rm=T))
+  summarize(speed_avg = mean(speed, na.rm=T), 
+            speed_sd = sd(speed, na.rm=T), 
+            timediff = mean(timediff, na.rm=T)/60) # convert to hourly
 
+# radius = c(a + 2b)
+sealispeed$radius <- sealispeed$timediff*(sealispeed$speed_avg + 2*sealispeed$speed_sd) 
 
-# Remove points over 75 km/hr as unreasonable speeds
-sealis <- sealis %>% filter(speed < 50)
+sealis <- left_join(sealis, sealispeed, by="DeployID")
 
-
-# st_write(sealis, "../Data_Processed/SSL_Telemetry_Clean_20210818.shp")
 ```
 
 ```{r average number of non-land points per sea lion per time period}
@@ -272,8 +277,26 @@ ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
 
 ```
 
+```{r create buffers around used locations}
+# Create individually buffered points based on 
+sealibuffs <- watersealis %>% group_by(DeployID) %>% st_buffer(dist=sealis$radius)
+
+saveRDS(sealibuffs, "../Data_Processed/watersealibuffs.rds")
+saveRDS(watersealis, "../Data_Processed/watersealis.rds")
+```
+
+
 ```{r plot individual SSL locs}
 
+#' ### Using ggplot without a background
+#' 
+#' Use separate axes for each individual (add scales="free" to facet_wrap)
+#+fig.height=12, fig.width=12
+ggplot(sealis, aes(x=lon, y=lat))+geom_point()+
+  facet_wrap(~DeployID, scales="free")
+
+
+# test individual ssls 
 ssl781 <- sealis %>% filter(DeployID == "SSL2019781KOD")
 
 # Leaflet map 
@@ -288,14 +311,29 @@ map <- get_map(location = c(lon = mean(ssl781$lon),
 ggmap(map) + 
   geom_point(data=ssl781, aes(x=lon, y=lat), size=2.5)
 
+############################# TESTING AMT PACKAGE ##################################
+library(amt)
+library(purrr)
 
-#' ### Using ggplot without a background
-#' 
-#' Use separate axes for each individual (add scales="free" to facet_wrap)
-#+fig.height=12, fig.width=12
-ggplot(sealis, aes(x=lon, y=lat))+geom_point()+
-  facet_wrap(~DeployID, scales="free")
+sealis$DeployID <- as.factor(sealis$DeployID)
 
+trk <- mk_track(st_drop_geometry(sealis), .x=lon, .y=lat, .t=Date, id = DeployID, 
+                crs = CRS("+init=epsg:4326"))
+trk.class<-class(trk)
+
+# Calculate time of day based on lat/lon and timestamp
+trk <- trk %>% time_of_day()
+class(trk) <- trk.class
+
+#' Now, we can transform back to geographic coordinates
+trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
+
+#' Or, we can add a columns to each nested column of data using purrr::map
+trk <- trk %>% nest_legacy(-id) %>% 
+  mutate(dir_abs = map(data, direction_abs,full_circle=TRUE, zero="N"), 
+         dir_rel = map(data, direction_rel), 
+         sl = map(data, step_lengths),
+         nsd_=map(data, nsd))%>%unnest()
 
 
 ```
