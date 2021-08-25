@@ -489,10 +489,12 @@ ssh_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat),
 # Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
 # Found this date in metadata text file
 t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+t2 <- format(t2, "%G-W%V")
 
 class(t2)
 # Name raster layers after the date that they portray
 names(ssh_brick) <-t2
+ssh_brick <- raster::setZ(ssh_brick, t2)
 
 # Save output file
 # writeRaster(ssh_brick, "../Data_Processed/ssh.tif")
@@ -502,30 +504,27 @@ names(ssh_brick) <-t2
 
 # Calculate mean monthly ssh rasters 
 
-#get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(ssh_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
+ssh_week <- zApply(ssh_brick, t2, fun=mean)# Goup by week and calculate mean
 
-#sum layers
-ssh_month <- stackApply(ssh_brick, indices, fun = mean)
-# animate(ssh_month, pause=0.5, n=1)
+# animate(ssh_week, pause=0.5, n=1)
 
 # plot monthly average ssh data for November, 2018
-sshmonth.df <- as.data.frame(ssh_month[[1]], xy=TRUE)  %>% drop_na()
-colnames(sshmonth.df) <- c("x","y","ssh")
+sshweek.df <- as.data.frame(ssh_week[[1]], xy=TRUE)  %>% drop_na()
+colnames(sshweek.df) <- c("x","y","ssh")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=sshmonth.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
+  geom_raster(data=sshweek.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# animate(ssh_month, pause=0.5, n=1)
+# animate(ssh_week, pause=0.5, n=1)
 
-writeRaster(ssh_month, "../Data_Processed/SSH_Monthly_20181101-20200531.tif", options="INTERLEAVE=BAND")
+writeRaster(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.tif", options="INTERLEAVE=BAND")
+saveRDS(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.rds")
 
 # Save output file
-# writeRaster(ssh_month, "../Data_Processed/SSH_Monthly_20181101-20200531.nc",
+# writeRaster(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.nc",
 #               overwrite=TRUE, format="CDF",
 #               varname="ssh", varunit="m",
 #               longname="Sea Surface Height -- raster brick to netCDF",
@@ -619,41 +618,37 @@ eke_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat),
 # Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
 # Found this date in metadata text file
 t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+t2 <- format(t2, "%G-W%V")
 
-class(t2)
 # Name raster layers after the date that they portray
 names(eke_brick) <-t2
+eke_brick <- raster::setZ(eke_brick, t2)
 
 # Save output file
 # writeRaster(eke_brick, "../Data_Processed/eke.tif")
 
-# Fun animation of the raster brick
-# animate(eke_brick, pause=0.5, n=1)
+# Calculate mean weekly  eke rasters 
+eke_week <- zApply(eke_brick, t2, fun = mean)
 
-# Calculate mean monthly eke rasters 
-
-#get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(eke_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
-
-#sum layers
-eke_month <- stackApply(eke_brick, indices, fun = mean)
-# animate(eke_month, pause=0.5, n=1)
+# animate(eke_week, pause=0.5, n=1)
 
 # plot monthly average eke data for November, 2018
-ekemonth.df <- as.data.frame(eke_month[[1]], xy=TRUE)  %>% drop_na()
-colnames(ekemonth.df) <- c("x","y","eke")
+ekeweek.df <- as.data.frame(eke_week[[1]], xy=TRUE)  %>% drop_na()
+colnames(ekeweek.df) <- c("x","y","eke")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=ekemonth.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
+  geom_raster(data=ekeweek.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# animate(eke_month, pause=0.5, n=1)
+# animate(eke_week, pause=0.5, n=1)
+
+writeRaster(eke_week, "../Data_Processed/eke_weekly_20181101-20200531.tif", options="INTERLEAVE=BAND")
+saveRDS(eke_week, "../Data_Processed/eke_weekly_20181101-20200531.rds")
 
 # Save output file
-# writeRaster(eke_month, "../Data_Processed/EKE_Monthly_20181101-20200531.nc",
+# writeRaster(eke_week, "../Data_Processed/eke_weekly_20181101-20200531.nc",
 #               overwrite=TRUE, format="CDF",
 #               varname="eke", varunit="m^2/s^2",
 #               longname="Eddy Kinetic Energy -- raster brick to netCDF",
@@ -690,13 +685,10 @@ dim(ssh2.array)
 # fillvalue <- ncatt_get(ssh2, "adt","_FillValue")
 # fillvalue
 # 
-# ssh2.array[ssh2.array == fillvalue$value] <- NA
+ssh2.array[ssh2.array == NaN] <- NA
 
 # Close netcdf file
 nc_close(ssh2)
-
-# Convert longitude from 0-360 to -180 to 180
-lon <- lon-360
 
 test <- aperm(ssh2.array, c(2,1,3))
 # Make a raster brick of all values 
@@ -709,10 +701,11 @@ ssh2_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat)
 # Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
 # Found this date in metadata text file
 t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+t2 <- format(t2, "%G-W%V")
 
-class(t2)
 # Name raster layers after the date that they portray
 names(ssh2_brick) <-t2
+ssh2_brick <- raster::setZ(ssh2_brick, t2)
 
 # Save output file
 # writeRaster(ssh2_brick, "../Data_Processed/ssh2.tif")
@@ -720,32 +713,31 @@ names(ssh2_brick) <-t2
 # Fun animation of the raster brick
 # animate(ssh2_brick, pause=0.5, n=1)
 
-# Calculate mean monthly ssh2 rasters 
+# Calculate mean weekly ssh2 rasters 
+ssh2_week <- zApply(ssh2_brick, t2, fun = mean)
 
-#get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(ssh2_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
-
-#sum layers
-ssh2_month <- stackApply(ssh2_brick, indices, fun = mean)
-# animate(ssh2_month, pause=0.5, n=1)
+# animate(ssh2_week, pause=0.5, n=1)
 
 # plot monthly average ssh data for November, 2018
-ssh2month.df <- as.data.frame(ssh2_month[[1]], xy=TRUE)  %>% drop_na()
-colnames(ssh2month.df) <- c("x","y","ssh")
+ssh2week.df <- as.data.frame(ssh2_week[[1]], xy=TRUE)  %>% drop_na()
+colnames(ssh2week.df) <- c("x","y","ssh")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=ssh2month.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
+  geom_raster(data=ssh2week.df, aes(x=x, y=y, fill=ssh), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
 
-temp <- addLayer(ssh_month, ssh2_month)
-# animate(ssh_month, pause=0.5, n=1)
+# temp <- addLayer(ssh_week, ssh2_week)
+
+# animate(ssh2_week, pause=0.5, n=1)
+
+writeRaster(ssh2_week, "../Data_Processed/ssh_weekly_20200601-20200731.tif", options="INTERLEAVE=BAND")
+saveRDS(ssh2_week, "../Data_Processed/ssh_weekly_20200601-20200731.rds")
 
 # Save output file
-# writeRaster(ssh2_month, "../Data_Processed/SSH_Monthly_20200601-20200731.nc",
+# writeRaster(ssh2_week, "../Data_Processed/ssh_weekly_20200601-20200731.nc",
 #               overwrite=TRUE, format="CDF",
 #               varname="ssh", varunit="m",
 #               longname="Sea Surface Height -- raster brick to netCDF",
@@ -799,41 +791,37 @@ eke2_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat)
 # Convert date from seconds since 01/01/2016 to yyyy-mm-dd format
 # Found this date in metadata text file
 t2 <- as.POSIXct("1950-01-01 00:00")+as.difftime(t,units="days")
+t2 <- format(t2, "%G-W%V")
 
-class(t2)
 # Name raster layers after the date that they portray
 names(eke2_brick) <-t2
+eke2_brick <- raster::setZ(eke2_brick, t2)
 
-# Save output file
-# writeRaster(eke2_brick, "../Data_Processed/eke2.tif")
-
-# Fun animation of the raster brick
-# animate(eke2_brick, pause=0.5, n=1)
 
 # Calculate mean monthly eke2 rasters 
 
 #get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(eke2_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
+eke2_week <- zApply(eke2_brick, t2, fun = mean)
 
-#sum layers
-eke2_month <- stackApply(eke2_brick, indices, fun = mean)
-# animate(eke2_month, pause=0.5, n=1)
+# animate(eke2_week, pause=0.5, n=1)
 
 # plot monthly average ssh data for November, 2018
-eke2month.df <- as.data.frame(eke2_month[[1]], xy=TRUE)  %>% drop_na()
-colnames(eke2month.df) <- c("x","y","eke")
+eke2week.df <- as.data.frame(eke2_week[[1]], xy=TRUE)  %>% drop_na()
+colnames(eke2week.df) <- c("x","y","eke")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=eke2month.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
+  geom_raster(data=eke2week.df, aes(x=x, y=y, fill=eke), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# animate(eke2_month, pause=0.5, n=1)
+# animate(eke2_week, pause=0.5, n=1)
+
+writeRaster(eke2_week, "../Data_Processed/eke_weekly_20200601-20200731.tif", options="INTERLEAVE=BAND")
+saveRDS(eke2_week, "../Data_Processed/eke_weekly_20200601-20200731.rds")
 
 # Save output file
-# writeRaster(eke2_month, "../Data_Processed/EKE_Monthly_20200601-20200731.nc",
+# writeRaster(eke2_week, "../Data_Processed/eke_weekly_20200601-20200731.nc",
 #               overwrite=TRUE, format="CDF",
 #               varname="EKE", varunit="m^2/s^2",
 #               longname="Eddy Kinetic Energy -- raster brick to netCDF",
@@ -913,9 +901,11 @@ wind_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat)
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="hours")
-class(t2)
+t2 <- format(t2, "%G-W%V")
+
 # Name raster layers after the date that they portray
 names(wind_brick) <-t2
+wind_brick <- raster::setZ(wind_brick, t2)
 
 # Save output file
 # writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif")
@@ -924,29 +914,28 @@ names(wind_brick) <-t2
 # animate(wind_brick, pause=0.5, n=1)
 
 # Calculate mean monthly wind rasters 
+wind_week <- zApply(wind_brick, t2, fun = mean)
 
-#get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(wind_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
-
-#sum layers
-wind_month <- stackApply(wind_brick, indices, fun = mean)
-# animate(wind_month, pause=0.5, n=1)
+# animate(wind_week, pause=0.5, n=1)
 
 # plot monthly average wind data for November, 2018
-windmonth.df <- as.data.frame(wind_month[[1]], xy=TRUE)  %>% drop_na()
-colnames(windmonth.df) <- c("x","y","windspeed")
+windweek.df <- as.data.frame(wind_week[[1]], xy=TRUE)  %>% drop_na()
+colnames(windweek.df) <- c("x","y","windspeed")
 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=windmonth.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  geom_raster(data=windweek.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# animate(wind_month, pause=0.5, n=1)
+# animate(wind_week, pause=0.5, n=1)
+
+writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options="INTERLEAVE=BAND")
+saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
+
 
 # Save output file
-# writeRaster(wind_month, "../Data_Processed/WIND_Monthly.nc",
+# writeRaster(wind_week, "../Data_Processed/wind_weekly.nc",
               # overwrite=TRUE, format="CDF",
               # varname="wind_speed", varunit="m/s",
               # longname="Wind Speed -- raster brick to netCDF",
@@ -958,7 +947,7 @@ Test to make sure that the netcdf file saved correctly.
 
 ```{r testing netcdf file save, eval=FALSE}
 
-test <-nc_open("../Data_Processed/WIND_Monthly.nc")
+test <-nc_open("../Data_Processed/wind_weekly.nc")
 
 # Save metadata to a text file
 {
@@ -1081,24 +1070,22 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
+test <- aperm(sst.array, c(2,1,3))
 # Make a raster brick of all values 
-sst_brick <- brick(sst.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+sst_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
                 crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) %>% 
-         flip(direction="x") %>%
+         flip(direction="y") %>%
          raster::projectRaster(crs=prj) %>% 
          raster::crop(study)
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
-t <- anydate(t)
-class(t)
+t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="secs")
+t2 <- format(t2, "%G-W%V")
+
 # Name raster layers after the date that they portray
-names(sst_brick) <- format(t, "X%Y.%m.%d")
+names(sst_brick) <- t2
+sst_brick <- raster::setZ(sst_brick, t2)
 
-# Save output file
-# writeRaster(sst_brick, "../Data_Processed/SST_AOOS_cropped_4336.tif")
-
-# Fun animation of the raster brick
-# animate(sst_brick, pause=0.5, n=1)
 
 # Calculate the change between any two layers
 # tempchange <- sst_brick[[2]]-sst_brick[[1]]
@@ -1107,14 +1094,14 @@ names(sst_brick) <- format(t, "X%Y.%m.%d")
 # Calculate mean monthly SST rasters 
 
 #get the date from the names of the layers and extract the month
-indices <- format(as.Date(names(sst_brick), format = "X%Y.%m.%d"), format = "%Y%m")
-indices <- as.numeric(indices)
+sst_week <- zApply(sst_brick, by=t2, fun = mean)
 
-#sum layers
-sst_month <- stackApply(sst_brick, indices, fun = mean)
-# animate(sst_month, pause=0.5, n=1)
+# animate(sst_week, pause=0.5, n=1)
 
-# writeRaster(sst_month, "../Data_Processed/SST_Monthly.nc",
+writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options="INTERLEAVE=BAND")
+saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
+
+# writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
 #       overwrite=TRUE, format="CDF",
 #       varname="analysed_sst", varunit="m/s",
 #       longname="Sea Surface Temperature -- raster brick to netCDF",
@@ -1138,7 +1125,7 @@ for(i in 1:length(sealis$DeployID)){
   if(i %% 100 == 0){
     print(i)
   }
-   sealis$SST[i] <- extract(subset(sst_month, 
+   sealis$SST[i] <- extract(subset(sst_week, 
                                    paste0("index_",sealis$yearmon[i])), sealis[i,])
 }
 
@@ -1171,7 +1158,7 @@ for(i in 1:length(sealitemps$DeployID)){
   if(i %% 100 == 0){
     print(i)
   }
-   sealitemps$SST[i] <- extract(subset(sst_month, 
+   sealitemps$SST[i] <- extract(subset(sst_week, 
                                    paste0("index_",sealitemps$yearmon[i])), sealis[i,])
 }
 
