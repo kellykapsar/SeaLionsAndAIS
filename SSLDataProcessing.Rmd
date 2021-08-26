@@ -100,7 +100,8 @@ argos$Date <- as.POSIXct(argos$Date, format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
 # But this matches up with the Microsoft Access database
 gps$Date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+ 
   as.difftime(as.numeric(gps$Date),units="days")
-gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"),
+                                        tz="GMT")
 
 sealis_old <- sealis 
 
@@ -309,6 +310,8 @@ wind <- readRDS("../Data_Processed/wind_weekly.rds")
 used <- readRDS("../Data_Processed/watersealis.rds")
 usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
 
+# used$Date <- format(used$Date, "%G-W%V")
+
 # Convert used locations to trk objects using amt package
 library(amt)
 
@@ -324,6 +327,10 @@ class(trk) <- trk.class
 trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
 
 # Extract covariate data at used locations 
+test <- extract_covariates_var_time(trk, sst, when="any", max_time= weeks(1), name_covar="SST")
+
+
+
 f <- extract_covariates_var_time(trk, fish, when="any", max_time= days(16), name_covar="Fishing")
 s <- extract_covariates_var_time(trk, ship, when="any", max_time= days(16), name_covar="Shipping")
 
@@ -363,14 +370,23 @@ avail <- do.call(rbind, q)
 proc.time()-start
 
 
+########################################################################################################
+#   WORKING ON SPATIOTEMPORAL COVAR EXTRACTION
 
-
-
+test <- extract_covariates_var_time(trk, sst, when="any", max_time= weeks(1), name_covar="SST")
 
 
 ### COPIED FROM AMT PACKAGE
 # https://github.com/jmsigner/amt/blob/master/R/extract_covariates.R
 # Also helpful: https://cran.r-project.org/web/packages/amt/vignettes/p3_rsf.html
+
+t <- trk$t_
+
+xy <- trk[,c("x_","y_")]
+
+covariates <- sst
+when <- "any"
+max_diff <- lubridate::period(weeks=1)
 
 extract_covar_var_time_base <- function(
   xy, t, covariates, when = "any",
@@ -384,7 +400,7 @@ extract_covar_var_time_base <- function(
     stop("`max_diff` is not of class `Period`.")
   }
   max_diff <- lubridate::period_to_seconds(max_diff)
-  t_covar <- as.numeric(as.POSIXct(raster::getZ(covariates)))
+  t_covar <- as.numeric(as.POSIXct(raster::getZ(covariates), format="%G-W%V"))
   t_obs <- as.numeric(as.POSIXct(t))
 
   # Fun to find closest point
