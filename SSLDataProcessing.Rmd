@@ -136,6 +136,9 @@ test <- sealis %>% filter(Type == "Argos") %>% group_by(DeployID, Date) %>% slic
 test2 <- filter(sealis, Type != "Argos")
 sealis <- rbind(test, test2)
 
+# Put back in temporal order by sea lion
+sealis <- sealis[order(sealis$DeployID, sealis$Date),]
+
 # Convert to spatial object
 sealis <- st_as_sf(sealis, coords=c("Longitude", "Latitude"), crs=4326)
 
@@ -151,17 +154,44 @@ sealis$northing <- st_coordinates(sealis)[,"Y"]
 sealis$easting <- st_coordinates(sealis)[,"X"]
 
 # Remove blank columns 
-sealis <- sealis[,-c(11:15)]
+sealis <- subset(sealis, select=-c(Offset, Offset.orientation, GPE.MSD, GPE.U, Count))
 
 # Save clean seali data 
 sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
                ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
 
+# Implement speed filter 
+sealis <- sealis %>% arrange(DeployID, Date) %>% 
+                group_by(DeployID) %>% 
+                mutate(spdfilt = argosfilter::vmask(lat=lat, lon=lon, dtime=Date, vmax = 3)) %>% 
+                ungroup()
+
+# Remove speed filtered points 
+sealis_dirty <- sealis 
+sealis <- sealis %>%  dplyr::filter(spdfilt != "removed") %>% dplyr::arrange(Date)
+
+# Plot change between speed filtered and original, separated by ssl
+sealis_dirty %>% st_drop_geometry() %>% 
+            dplyr::arrange(Date) %>% 
+            ggplot() + 
+              geom_path(aes(x=lon, y=lat)) + 
+              geom_path(data=sealis, aes(x=lon, y=lat), col="red") + 
+              facet_wrap(~DeployID, scales = "free")
+
+# plot clean data by ssl
+# Plot change between speed filtered and original, separated by ssl
+sealis %>% st_drop_geometry() %>% 
+            dplyr::arrange(Date) %>% 
+            ggplot() + 
+              geom_path(aes(x=lon, y=lat)) + 
+              facet_wrap(~DeployID, scales = "free")
+
 # Map of study area 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_sf(data=study, fill=NA, color="red")+
-  geom_sf(data=sealis, aes(color=DeployID))
+  # geom_path is much faster than geom_sf
+  geom_path(data=sealis, aes(x=easting, y=northing, color=DeployID))
 
 # Tag duration timeline 
 timeline <- sealis %>% st_drop_geometry() %>% group_by(DeployID) %>% summarize(starttag = as.Date(min(Date)), endtag=as.Date(max(Date)))
