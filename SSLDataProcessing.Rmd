@@ -250,7 +250,7 @@ sealis <- sealis %>%
   group_by(DeployID) %>%
   arrange(DeployID, Date) %>% 
   mutate(timediff = as.numeric(difftime(Date,lag(Date),units=c("mins"))),
-         speed = euclidean_speed(northing, lag(northing), easting, lag(easting), 
+         speed_kmhr = euclidean_speed(northing, lag(northing), easting, lag(easting), 
                                  Date, lag(Date)))
 
 
@@ -259,8 +259,8 @@ sealis <- sealis %>%
 sealispeed <- sealis %>% 
   st_drop_geometry() %>% 
   group_by(DeployID) %>% 
-  summarize(speed_avg = mean(speed, na.rm=T), 
-            speed_sd = sd(speed, na.rm=T), 
+  summarize(speed_avg = mean(speed_kmhr, na.rm=T), 
+            speed_sd = sd(speed_kmhr, na.rm=T), 
             timediff = mean(timediff, na.rm=T)/60) # convert to hourly
 
 # radius = c(a + 2b)
