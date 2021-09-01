@@ -114,7 +114,7 @@ sealis$Date <- round(sealis$Date, "mins")
 
 # Create various date reference categories for future modeling 
 sealis$fortnight <- ceiling(lubridate::week(sealis$Date) / 2)
-sealis$weekofyear <- lubridate::week(sealis$Date)
+sealis$weekofyear <- lubridate::isoweek(sealis$Date)
 sealis$month <- lubridate::month(sealis$Date)
 sealis$year <- lubridate::year(sealis$Date)
 sealis$dayofyear <- lubridate::date(sealis$Date)
@@ -323,7 +323,7 @@ depth <- raster("../Data_Processed/Bathymetry.tif") %>% raster::mask(landmask, m
 distland <- raster("../Data_Processed/DistLand.tif") %>% raster::mask(landmask, maskvalue=1)
 covarstack <- raster::stack(distland, dist500m, depth)
 
-ship <- readRDS("../Data_Processed/AIS_AllOther.rds")
+ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
 fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
 eke1 <- readRDS("../Data_Processed/eke_weekly_20181101-20200531.rds")
 eke2 <- readRDS("../Data_Processed/eke_weekly_20200601-20200731.rds")
@@ -338,34 +338,9 @@ wind <- readRDS("../Data_Processed/wind_weekly.rds")
 used <- readRDS("../Data_Processed/watersealis.rds")
 usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
 
-# used$Date <- format(used$Date, "%G-W%V")
-
-# Convert used locations to trk objects using amt package
-library(amt)
-
-trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=Date, id = DeployID, 
-                crs = CRS("+init=epsg:4326"))
-trk.class<-class(trk)
-
-# Calculate time of day based on lat/lon and timestamp
-trk <- trk %>% time_of_day()
-class(trk) <- trk.class
-
-#' Now, we can transform back to geographic coordinates
-trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
-
-# Extract covariate data at used locations 
-test <- extract_covariates_var_time(trk, sst, when="any", max_time= weeks(1), name_covar="SST")
+used$Used <- 1
 
 
-
-f <- extract_covariates_var_time(trk, fish, when="any", max_time= days(16), name_covar="Fishing")
-s <- extract_covariates_var_time(trk, ship, when="any", max_time= days(16), name_covar="Shipping")
-
-
-
-
-############################### IDENTIFYING AVAILABLE POINTS IN OCEAN 
 
 # ID available points based on previously calculated radii
 # Accounts for points on land 
@@ -377,88 +352,85 @@ custom_extract_avail <- function(usedbuff, covarstack, npts = 5){
   return(df)
 }
 
-# Runing function as a loop takes ~15 hrs.... 
-start <- proc.time()
-q <- lapply(1:length(usedbuff$DeployID), 
-            function(x){custom_extract_avail(usedbuff[x,], covarstack=covarstack)})
-avail <- do.call(rbind, q)
-proc.time()-start
+# Extract available locations from buffered used locations 
+# Takes ~ 1.3 hours 
+# 
+# start <- proc.time()
+# q <- lapply(1:length(usedbuff$DeployID), 
+#             function(x){custom_extract_avail(usedbuff[x,], covarstack=covarstack)})
+# avail <- do.call(rbind, q)
+# proc.time()-start
+# 
+# saveRDS(avail, "../Data_Processed/AvailableLocsWithCovars.rds")
 
-writeRDS(avail, "../Data_Processed/AvailableLocsWithCovars.rds")
-
-
-# Doesn't account for points on land 
-q <- st_sample(usedbuff[1:10,], size = rep(5, length(usedbuff$DeployID[1:10])), by_polygon=TRUE)
-
-# Doesn't account for points on land
-start <- proc.time()
-q <- lapply(1:length(usedbuff$DeployID), 
-            function(x){random_points(usedbuff[x,], n=5)})
-avail <- do.call(rbind, q)
-proc.time()-start
+# Read in previously extracted available locations (created from above code chunk)
+avail <- readRDS("../Data_Processed/AvailablelocswithCovars.rds")
 
 
-########################################################################################################
-#   WORKING ON SPATIOTEMPORAL COVAR EXTRACTION
-
-test <- extract_covariates_var_time(trk, sst, when="any", max_time= weeks(1), name_covar="SST")
-
-
-### COPIED FROM AMT PACKAGE
+# Extract covariate data at used locations 
+### Modified from FROM AMT PACKAGE
 # https://github.com/jmsigner/amt/blob/master/R/extract_covariates.R
 # Also helpful: https://cran.r-project.org/web/packages/amt/vignettes/p3_rsf.html
+# I modified it so that it works with weekly timescale data 
+# DOES NOT work with holes in the data set any more 
 
-t <- trk$t_
+extract_covar_var_time_custom <- function(
+  xy, t, covariates) {
 
-xy <- trk[,c("x_","y_")]
+  t_covar <- raster::getZ(covariates)
+  t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week
 
-covariates <- sst
-when <- "any"
-max_diff <- lubridate::period(weeks=1)
-
-extract_covar_var_time_base <- function(
-  xy, t, covariates, when = "any",
-  max_diff) {
-
-  if (is.null(raster::getZ(covariates))) {
-    stop("Covariates do not have a Z column.")
-  }
-
-  if (!is(max_diff, "Period")) {
-    stop("`max_diff` is not of class `Period`.")
-  }
-  max_diff <- lubridate::period_to_seconds(max_diff)
-  t_covar <- as.numeric(as.POSIXct(raster::getZ(covariates), format="%G-W%V"))
-  t_obs <- as.numeric(as.POSIXct(t))
-
-  # Fun to find closest point
-  which_rast <- function(t_diffs, where, max_diff) {
-    wr <- if (when == "after") {
-      which.min(t_diffs[t_diffs >= 0])
-    } else if (when == "before") {
-      which.min(abs(t_diffs[t_diffs <= 0])) + sum(t_diffs > 0)
-    } else if (when == "any") {
-      which.min(abs(t_diffs))
-    }
-    if (length(wr) == 0) {
-      NA
-    } else if (max_diff < abs(t_diffs[wr])) {
-      NA
-    } else {
-      wr
-    }
-  }
-
-  wr <- sapply(t_obs, function(x) which_rast(x - t_covar, when, max_diff))
-  ev <- raster::extract(covariates, cbind(xy))
-  cov_val <- ev[cbind(seq_along(wr), wr)]
+  wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
+  ev <- raster::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
+  cov_val <- ev[cbind(seq_along(wr), wr)] # select only the relevant time slice for each location
   return(cov_val)
 }
 
 
+# Extract covariate data at used locations 
+used <- cbind(used, raster::extract(covarstack, used))
+used$sst <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=sst)
+used$wind <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=wind)
+used$ship <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=ship)
+used$fish <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=fish)
 
-t_covar <- as.numeric(as.POSIXct(raster::getZ(fish)))
-t_obs <- as.numeric(as.POSIXct(t))
+# Extract covariate data at available locations 
+avail <- avail %>% rename(northing = y, easting= x)
+avail$sst <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=sst)
+avail$wind <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=wind)
+avail$ship <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=ship)
+avail$fish <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=fish)
+
+# Combine used and available data frames
+
+ssl <- dplyr::bind_rows(st_drop_geometry(used), avail)
+ssl$Used <- factor(ssl$Used, levels=c(1,0), labels=c("Used","Available"))
+
+```
+
+```{r initial histograms}
+
+p1 <- ggplot(ssl, aes(sst)) +
+        geom_density(group=Used)
+
+```
+
+
+
+```{r amt package experiments}
+# Convert used locations to trk objects using amt package
+library(amt)
+
+trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=Date, id = DeployID, sst=sst, 
+                crs = CRS("+init=epsg:4326"))
+trk.class<-class(trk)
+
+# Calculate time of day based on lat/lon and timestamp
+trk <- trk %>% time_of_day()
+class(trk) <- trk.class
+
+#' Now, we can transform back to geographic coordinates
+trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
 ```
 
 
