@@ -523,6 +523,7 @@ ggplot() +
 writeRaster(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.tif", options="INTERLEAVE=BAND")
 saveRDS(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.rds")
 
+
 # Save output file
 # writeRaster(ssh_week, "../Data_Processed/ssh_weekly_20181101-20200531.nc",
 #               overwrite=TRUE, format="CDF",
@@ -999,11 +1000,8 @@ ggplot() +
 
 ## Sea Surface Temperature
 
-[OSTIA: Operational Sea Surface Temperature and Sea Ice Analysis](https://portal.aoos.org/gulf-of-alaska.php#module-metadata/e873784f-7201-416f-bb26-6061c82af388/adc56dd8-e6c6-4d09-abc6-86962fc308eb) from the Alaska Ocean Observing System. 
+[OSTIA: Operational Sea Surface Temperature and Sea Ice Analysis](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001) from the Copernicus Marine Service. 
 
-Citation: 	UK Met Office. 2005. OSTIA L4 SST Analysis. Ver. 1.0. PO.DAAC, CA, USA. Dataset accessed [YYYY-MM-DD] at https://doi.org/10.5067/GHOST-4FK01
-
-Data requested from: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc/dataset.html
 Variables = analysed_sst, analysis_error, mask, sea_ice_fraction
 
 North = 62
@@ -1013,15 +1011,13 @@ East = -143
 Start = 01 Nov 2018
 End = 31 July 2020
 
-NCSS Request URL: https://thredds.axiomdatascience.com/thredds/ncss/AOOS_OSTIA.nc?var=analysed_sst&var=analysis_error&var=mask&var=sea_ice_fraction&north=62&west=-155&east=-143&south=56&disableProjSubset=on&horizStride=1&time_start=2018-11-01T12%3A00%3A00Z&time_end=2020-07-31T12%3A00%3A00Z&timeStride=1&accept=netcdf
-
 ```{r sea surface temperature}
 
 # Open netcdf file 
-sst <- nc_open("../Data_Raw/AOOS_OSTIA.nc")
+sst <- nc_open("../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.nc")
 # Save metadata to a text file
 {
-  sink('../Data_Raw/AOOS_OSTIA.txt')
+  sink('../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.txt')
   print(sst)
   sink()
 }
@@ -1079,7 +1075,7 @@ sst_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat),
          raster::crop(study)
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
-t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="secs")
+t2 <- as.POSIXct("1981-01-01 00:00")+as.difftime(t,units="secs")
 t2 <- format(t2, "%G-W%V")
 
 # Name raster layers after the date that they portray
@@ -1095,6 +1091,9 @@ sst_brick <- raster::setZ(sst_brick, t2)
 
 #get the date from the names of the layers and extract the month
 sst_week <- zApply(sst_brick, by=t2, fun = mean)
+
+# Convert from kelvin to celcius
+sst_week <- sst_week - 273.15
 
 # animate(sst_week, pause=0.5, n=1)
 
