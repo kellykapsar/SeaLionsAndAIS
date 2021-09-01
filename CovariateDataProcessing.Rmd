@@ -1044,6 +1044,9 @@ sst.array[sst.array == fillvalue$value] <- NA
 # Close netcdf file
 nc_close(sst)
 
+# Conver from kelvin to celcius 
+sst.array <- sst.array - 273.15
+
 # Isolate and plot a random time step to check
 sst.slice <- sst.array[,,1]
 
@@ -1089,13 +1092,8 @@ sst_brick <- raster::setZ(sst_brick, t2)
 # tempchange <- sst_brick[[2]]-sst_brick[[1]]
 # tempchange
 
-# Calculate mean monthly SST rasters 
-
 #get the date from the names of the layers and extract the month
 sst_week <- zApply(sst_brick, by=t2, fun = mean)
-
-# Convert from kelvin to celcius
-sst_week <- sst_week - 273.15
 
 # animate(sst_week, pause=0.5, n=1)
 
