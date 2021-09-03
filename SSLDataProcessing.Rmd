@@ -321,7 +321,8 @@ landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
 dist500m <- raster("../Data_Processed/Dist500m.tif") %>% raster::mask(landmask, maskvalue=1)
 depth <- raster("../Data_Processed/Bathymetry.tif") %>% raster::mask(landmask, maskvalue=1)
 distland <- raster("../Data_Processed/DistLand.tif") %>% raster::mask(landmask, maskvalue=1)
-covarstack <- raster::stack(distland, dist500m, depth)
+slope <- raster("../Data_Processed/slope.tif") %>% raster::mask(landmask, maskvalue=1)
+covarstack <- raster::stack(distland, dist500m, depth, slope)
 
 ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
 fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
@@ -332,14 +333,19 @@ ssh2 <- readRDS("../Data_Processed/ssh_weekly_20200601-20200731.rds")
 sst <- readRDS("../Data_Processed/sst_weekly.rds")
 wind <- readRDS("../Data_Processed/wind_weekly.rds")
 
+# Check resolution of all covars
+temporal <- list(depth, distland, dist500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+rasres <- lapply(temporal, function(x) res(x)/1000)
 
+t <- data.frame(matrix(unlist(rasres), nrow=length(rasres), byrow=TRUE))
+t <- cbind(data.frame(covar = c("depth", "distland", "dist500m", "slope", "ship", "fish", "sst", 'eke1', 
+                                "eke2", 'ssh1', "ssh2", "wind")), t)
 
-
+# Load in used locations 
 used <- readRDS("../Data_Processed/watersealis.rds")
 usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
 
 used$Used <- 1
-
 
 
 # ID available points based on previously calculated radii
@@ -386,25 +392,45 @@ extract_covar_var_time_custom <- function(
   return(cov_val)
 }
 
-
 # Extract covariate data at used locations 
 used <- cbind(used, raster::extract(covarstack, used))
 used$sst <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=sst)
 used$wind <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=wind)
 used$ship <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=ship)
 used$fish <- extract_covar_var_time_custom(xy= st_coordinates(used), t = used$Date, covariates=fish)
+used1 <- used %>% filter(!Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=ssh1),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=eke1)
+)
+used2 <- used %>% filter(Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=ssh2),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=eke2)
+)
+used <- rbind(used1, used2)
 
 # Extract covariate data at available locations 
 avail <- avail %>% rename(northing = y, easting= x)
-avail$sst <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=sst)
-avail$wind <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=wind)
-avail$ship <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=ship)
-avail$fish <- extract_covar_var_time_custom(xy= cbind(avail$x, avail$y), t = avail$Date, covariates=fish)
+avail$sst <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=sst)
+avail$wind <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=wind)
+avail$ship <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=ship)
+avail$fish <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=fish)
+avail1 <- avail %>% filter(!Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=ssh1),
+  eke = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=eke1)
+)
+avail2 <- avail %>% filter(Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=ssh2),
+  eke = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=eke2)
+)
+avail <- rbind(avail1, avail2)
 
 # Combine used and available data frames
 
 ssl <- dplyr::bind_rows(st_drop_geometry(used), avail)
 ssl$Used <- factor(ssl$Used, levels=c(1,0), labels=c("Used","Available"))
+ssl$DeployID <- factor(ssl$DeployID)
+
+saveRDS(ssl, "../Data_Processed/SSL_UsedAndAvail_WithCovars.rds")
 
 ```
 
