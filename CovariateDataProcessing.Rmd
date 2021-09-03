@@ -230,8 +230,8 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-
-# writeRaster(slope, "../Data_Processed/Slope.tif")
+saveRDS(slope, "../Data_Processed/slope.rds")
+writeRaster(slope, "../Data_Processed/slope.tif")
 ```
 
 ## Distance to land 
@@ -328,6 +328,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 ```
+
 ## AIS Data
 ```{r ais, warning=FALSE}
 
