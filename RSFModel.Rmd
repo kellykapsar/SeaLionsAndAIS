@@ -20,7 +20,10 @@ library(ggplot2)
 library(scales)
 library(ggmap)
 library(leaflet)
+library(ggplot2)
+library(GGally)
 
+opar <- par()      # make a copy of current graphical parameters
 ```
 
 Study area boundaries. 
@@ -55,7 +58,43 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 
 ```
 
-Defining used and available locations.
+Pull in SSL data. 
+
+```{r}
+ssl <- readRDS("../Data_Processed/SSL_UsedAndAvail_WithCovars.rds") 
+usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
+
+```
 
 
+```{r covariate plots}
+
+# used vs. available for all ind'ls grouped
+boxplot(Bathymetry ~ Used, data = ssl, ylab=NA, main = "Depth (m)")
+boxplot(DistLand ~ Used, data = ssl, ylab=NA, main = "Distance to Land (km)")
+boxplot(Dist500m ~ Used, data = ssl, ylab=NA, main = "Distance to Shelf Break (km)")
+boxplot(slope ~ Used, data = ssl, ylab=NA, main = "Slope (degrees)")
+boxplot(ssh ~ Used, data = ssl, ylab=NA, main = "Sea Surface Height (m)")
+boxplot(eke ~ Used, data = ssl, ylab=NA, main = "Eddy Kinetic Energy (m^2/s^2)")
+boxplot(wind ~ Used, data = ssl, ylab=NA, main = "Wind speed (m/s")
+boxplot(fish ~ Used, data = ssl, ylab=NA, main = "Fishing (km)")
+boxplot(ship ~ Used, data = ssl, ylab=NA, main = "Other Shipping (km)")
+boxplot(sst ~ Used, data = ssl, ylab=NA, main = "Sea Surface Temperature (C)")
+
+# Individual differences in use 
+boxplot(Bathymetry ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(DistLand ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(Dist500m ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(slope ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(ssh ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(eke ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(wind ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(fish ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(ship ~ DeployID, data = subset(ssl, Used == "Used"))
+boxplot(sst ~ DeployID, data = subset(ssl, Used == "Used"))
+
+# Correlations between covariates 
+ssl %>% dplyr::select(Bathymetry, DistLand, Dist500m, slope, ssh, eke, wind, fish, ship, sst) %>% ggcorr(label=T)
+
+```
 
