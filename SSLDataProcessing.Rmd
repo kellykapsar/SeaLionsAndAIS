@@ -309,9 +309,9 @@ ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
 ```{r create buffers around used locations}
 # Create individually buffered points based on 
 sealibuffs <- watersealis %>% group_by(DeployID) %>% st_buffer(dist=sealis$radius*1000) # Convert radius to m
-
-saveRDS(sealibuffs, "../Data_Processed/watersealibuffs.rds")
-saveRDS(watersealis, "../Data_Processed/watersealis.rds")
+# 
+# saveRDS(sealibuffs, "../Data_Processed/watersealibuffs.rds")
+# saveRDS(watersealis, "../Data_Processed/watersealis.rds")
 ```
 
 ```{r}
@@ -333,13 +333,33 @@ ssh2 <- readRDS("../Data_Processed/ssh_weekly_20200601-20200731.rds")
 sst <- readRDS("../Data_Processed/sst_weekly.rds")
 wind <- readRDS("../Data_Processed/wind_weekly.rds")
 
-# Check resolution of all covars
-temporal <- list(depth, distland, dist500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
-rasres <- lapply(temporal, function(x) res(x)/1000)
 
-t <- data.frame(matrix(unlist(rasres), nrow=length(rasres), byrow=TRUE))
-t <- cbind(data.frame(covar = c("depth", "distland", "dist500m", "slope", "ship", "fish", "sst", 'eke1', 
-                                "eke2", 'ssh1', "ssh2", "wind")), t)
+# Check resolution of all covars
+raslist <- list(depth, distland, dist500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+rasres <- lapply(raslist, function(x) res(x)/1000)
+
+# Create 5km raster template
+ras_5km <- crop(fish, study)
+res(ras_5km) <- 5000
+
+# NOT SURE WHY THIS ISN'T WORKING.... WHAT'S UP WITH THE FILE CONNECTION? WILL TRY OVER AGAIN FROM BEGINNING
+depth_5km <- resample(depth, ras_5km)
+distland_5km <- resample(distland, ras_5km)
+dist500m_5km <- resample(dist500m, ras_5km)
+slope_5km <- resample(slope, ras_5km)
+ship_5km <- resample(ship, ras_5km)
+fish_5km <- resample(fish, ras_5km)
+sst_5km <- resample(sst, ras_5km) # NOT WORKING: "Cannot open the connection" 
+eke1_5km <- resample(eke1, ras_5km)
+eke2_5km <- resample(eke2, ras_5km)
+ssh1_5km <- resample(ssh1, ras_5km)
+ssh2_5km <- resample(ssh2, ras_5km)
+wind_5km <- resample(wind, ras_5km) # NOT WORKING: "Cannot open the connection" 
+
+# NOT SURE WHAT THIS IS FOR BUT I'M KEEPING IT JUST IN CASE
+# t <- data.frame(matrix(unlist(rasres), nrow=length(rasres), byrow=TRUE))
+# t <- cbind(data.frame(covar = c("depth", "distland", "dist500m", "slope", "ship", "fish", "sst", 'eke1', 
+#                                 "eke2", 'ssh1', "ssh2", "wind")), t)
 
 # Load in used locations 
 used <- readRDS("../Data_Processed/watersealis.rds")
