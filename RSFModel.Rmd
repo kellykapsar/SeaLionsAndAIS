@@ -98,3 +98,21 @@ ssl %>% dplyr::select(Bathymetry, DistLand, Dist500m, slope, ssh, eke, wind, fis
 
 ```
 
+```{r centering variables}
+
+ssl$Bathymetry.ctd <- ssl$Bathymetry - mean(ssl$Bathymetry)
+ssl$DistLand.ctd <- ssl$DistLand - mean(ssl$DistLand)
+ssl$Dist500m.ctd <- ssl$Dist500m - mean(ssl$Dist500m)
+ssl$slope.ctd <- ssl$slope - mean(ssl$slope)
+ssl$ssh.ctd <- ssl$ssh - mean(ssl$ssh)
+ssl$eke.ctd <- ssl$eke - mean(ssl$eke)
+ssl$wind.ctd <- ssl$wind - mean(ssl$wind)
+ssl$fish.ctd <- ssl$fish - mean(ssl$fish)
+ssl$ship.ctd <- ssl$ship - mean(ssl$ship)
+ssl$sst.ctd <- ssl$sst - mean(ssl$sst)
+
+
+
+
+```
+
