@@ -377,22 +377,22 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 
 # Save raster bricks as netcdf files 
 # Save output file
-writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-              overwrite=TRUE, format="CDF",
-              varname="intensity", varunit="km",
-              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-              xname="lon",   yname="lat",zname="time",
-              zunit="numeric")
-
-saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
-
-writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-              overwrite=TRUE, format="CDF",
-              varname="intensity", varunit="km",
-              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-              zname="time", xname="lon",   yname="lat")
-
-saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="intensity", varunit="km",
+#               longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+#               xname="lon",   yname="lat",zname="time",
+#               zunit="numeric")
+# 
+# saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+# 
+# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+#               overwrite=TRUE, format="CDF",
+#               varname="intensity", varunit="km",
+#               longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+#               zname="time", xname="lon",   yname="lat")
+# 
+# saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
 # writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
 #               overwrite=TRUE, format="CDF")
 # Plot results
