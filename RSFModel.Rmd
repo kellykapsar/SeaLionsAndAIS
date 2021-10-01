@@ -61,13 +61,47 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 Pull in SSL data. 
 
 ```{r}
-ssl <- readRDS("../Data_Processed/SSL_UsedAndAvail_WithCovars.rds") 
+ssl_orig <- readRDS("../Data_Processed/SSL_UsedAndAvail_WithCovars.rds")  %>% 
+                    group_by(DeployID, Date) %>% 
+                    mutate(choice_id = cur_group_id()) %>% 
+                    ungroup()
+ssl <- ssl_orig %>% 
+  dplyr::select(DeployID, Used, choice_id, year, month, weekofyear, Bathymetry, DistLand, Dist500m, 
+                slope, ssh, eke, wind, fish, ship, sst)
 usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
 
 ```
 
 
 ```{r covariate plots}
+
+summary(ssl); cat("\n")
+
+library(tidyverse)
+# Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
+
+# Violin plots of all covars: Used vs. available
+imap(dplyr::select(ssl, -DeployID, -Used, -choice_id, -year, -month, -weekofyear), ~ {
+  ggplot(ssl, aes(x=Used, y=.x, fill=Used)) +
+    geom_violin() +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    ylab(.y)
+})
+
+# Violin plots of all covars: by individual
+imap(dplyr::select(ssl, -DeployID, -Used, -choice_id, -year, -month, -weekofyear), ~ {
+  ggplot(ssl, aes(x=DeployID, y=.x, fill=DeployID)) +
+    geom_violin() +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    ylab(.y) +
+    theme(axis.text.x = element_text(angle = 90))
+})
+
+
+# Maybe use this to figure out how to apply across columns
+# https://stackoverflow.com/questions/61617075/apply-ggplot2-across-columns
+
+violin(data=ssl, x=ssl$Used, y=ssl$Bathymetry, fill=ssl$Used)
 
 # used vs. available for all ind'ls grouped
 boxplot(Bathymetry ~ Used, data = ssl, ylab=NA, main = "Depth (m)")
@@ -96,6 +130,8 @@ boxplot(sst ~ DeployID, data = subset(ssl, Used == "Used"))
 # Correlations between covariates 
 ssl %>% dplyr::select(Bathymetry, DistLand, Dist500m, slope, ssh, eke, wind, fish, ship, sst) %>% ggcorr(label=T)
 
+
+# VIOLIN PLOTS INSTEAD
 ```
 
 ```{r centering variables}
