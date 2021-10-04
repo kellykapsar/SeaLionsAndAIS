@@ -934,7 +934,7 @@ ggplot() +
 
 # animate(wind_week, pause=0.5, n=1)
 
-writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options="INTERLEAVE=BAND")
+writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options="INTERLEAVE=BAND", overwrite=T)
 saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
 
 
@@ -1098,7 +1098,7 @@ sst_week <- zApply(sst_brick, by=t2, fun = mean)
 
 # animate(sst_week, pause=0.5, n=1)
 
-writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options="INTERLEAVE=BAND")
+# writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options="INTERLEAVE=BAND", overwrite=T)
 saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
 
 # writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
