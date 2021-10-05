@@ -23,16 +23,27 @@ library(ggmap)
 # Set seed
 set.seed(1015)
 
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
+# Create study area polygon
+coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
+study <- coords %>% 
+         st_as_sf(coords = c("lon", "lat"), crs=4326) %>% 
+         group_by(id) %>% 
+         summarize(geometry = st_combine(geometry)) %>%  
+         st_cast("POLYGON") %>% 
+         st_transform(prj)
+
 # Read in clean, non-land ssl used locations
-ssl <- readRDS("../Data_Processed/watersealis.rds")
-ssl$used <- 1
-ssl$used <- factor(ssl$used, levels=c(1,0), labels=c("Used","Available"))
+ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
+ssl$used <- factor(1)
 
 # Read in covariates 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
-dist500m <- raster("../Data_Processed/Dist500m.tif") %>% raster::mask(landmask, maskvalue=1)
+dist_500m <- raster("../Data_Processed/Dist500m.tif") %>% raster::mask(landmask, maskvalue=1)
 depth <- raster("../Data_Processed/Bathymetry.tif") %>% raster::mask(landmask, maskvalue=1)
-distland <- raster("../Data_Processed/DistLand.tif") %>% raster::mask(landmask, maskvalue=1)
+dist_land <- raster("../Data_Processed/DistLand.tif") %>% raster::mask(landmask, maskvalue=1)
 slope <- raster("../Data_Processed/slope.tif") %>% raster::mask(landmask, maskvalue=1)
 
 ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
@@ -44,8 +55,8 @@ ssh2 <- readRDS("../Data_Processed/ssh_weekly_20200601-20200731.rds")
 sst <- readRDS("../Data_Processed/sst_weekly.rds")
 wind <- readRDS("../Data_Processed/wind_weekly.rds")
 
-# Create a list of all covariates and check resolution 
-raslist <- list(depth, distland, dist500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+# Create a list of all covariate files  and check resolution 
+raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Function to identify random points within a set of polygons 
@@ -54,9 +65,9 @@ rasres <- lapply(raslist, function(x) res(x)/1000)
 
 custom_extract_avail <- function(poly, covarstack, npts = 5){
   df <-  as.data.frame(sampleRandom(x=covarstack, size = npts, na.rm = TRUE, ext = as(poly, "Spatial"), xy = TRUE))
-  df$Used <- 0
-  df$Date <- poly$Date
-  df$DeployID <- poly$DeployID
+  df$used <- factor(0)
+  df$date <- poly$date
+  df$deploy_id <- poly$deploy_id
   df$choice_id <- poly$choice_id
   df$year <- poly$year
   df$month <- poly$month
@@ -87,45 +98,47 @@ extract_covar_var_time_custom <- function(
 ```
 
 
-```{r avail method 1: custom buffer size around used points}
+```{r avail method 1: custom buffer size around used points, eval=FALSE}
 
 # Create individually buffered points based on 
-sealibuffs <- ssl %>% group_by(DeployID) %>% st_buffer(dist=ssl$radius*1000) # Convert radius to m
+sealibuffs <- ssl %>% group_by(deploy_id) %>% st_buffer(dist=ssl$radius*1000) # Convert radius to m
 # st_write(sealibuffs, "../Data_Processed/sealibuffs.shp")
 
 # Create a list of static covariates 
-staticcovars <- raster::stack(distland, dist500m, depth, slope)
+staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
 
 # Create a list of all covariates and check resolution 
-raslist <- list(depth, distland, dist500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
 
 # Extract available locations from buffered used locations 
 # Takes ~ 1.3 hours 
-# 
-# start <- proc.time()
-# # q <- lapply(1:length(sealibuffs$DeployID),
-# #             function(x){custom_extract_avail(sealibuffs[x,], covarstack=staticcovars)})
-# avail <- data.frame()
-# for(i in 1:length(sealibuffs$DeployID)){
-#   print(i)
-#   q <- custom_extract_avail(sealibuffs[i,], covarstack=staticcovars)
-#   avail <- rbind(avail, q)
-# }
-# 
-# # avail <- do.call(rbind, q)
-# proc.time()-start
-# 
-# saveRDS(avail, "../Data_Processed/AvailableLocsWithCovars_20211003.rds")
+
+start <- proc.time()
+# q <- lapply(1:length(sealibuffs$deploy_id),
+#             function(x){custom_extract_avail(sealibuffs[x,], covarstack=staticcovars)})
+avail <- data.frame()
+for(i in 1:length(sealibuffs$deploy_id)){
+  print(i)
+  q <- custom_extract_avail(sealibuffs[i,], covarstack=staticcovars)
+  avail <- rbind(avail, q)
+}
+
+# avail <- do.call(rbind, q)
+proc.time()-start
+
+saveRDS(avail, "../Data_Processed/Telemetry/Available_SpeedBuff_20211003.rds")
 
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 # Read in previously extracted available locations (created from above code chunk)
-avail <- readRDS("../Data_Processed/AvailablelocswithCovars_20211003.rds")
+avail <- readRDS("../Data_Processed/Telemetry/Available_SpeedBuff_20211003.rds")
 
 # Rename x and y into northing and easting
-avail <- avail %>% rename(northing = y, easting= x) %>% st_as_sf(coords=c("easting", "northing"), remove=F) 
+avail <- avail %>% rename(northing = y, easting= x) %>% 
+                   st_as_sf(coords=c("easting", "northing"), remove=F) %>%
+                   mutate(used=factor(0))
 st_crs(avail) <- st_crs(ssl)
 
 # Extract static covariates at used locations
@@ -136,27 +149,107 @@ ssl1 <- bind_rows(ssl, avail)
 
 # Extract dynamic weekly covariate values at used and available locations 
 # Extract covariate data at used locations 
-ssl1$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$Date, covariates=sst)
-ssl1$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$Date, covariates=wind)
-ssl1$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$Date, covariates=ship)
-ssl1$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$Date, covariates=fish)
-ssl11 <- ssl1 %>% filter(!Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=ssh1),
-  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=eke1)
+ssl1$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$date, covariates=sst)
+ssl1$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$date, covariates=wind)
+ssl1$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$date, covariates=ship)
+ssl1$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl1), t = ssl1$date, covariates=fish)
+ssl11 <- ssl1 %>% filter(!date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh1),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke1)
 )
-ssl12 <- ssl1 %>% filter(Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=ssh2),
-  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$Date, covariates=eke2)
+ssl12 <- ssl1 %>% filter(date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh2),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke2)
 )
 ssl1 <- rbind(ssl11, ssl12)
 
+# Standardize column names to lowercase with underscores between words
+colnames(ssl1) <- tolower(colnames(ssl1)) 
+ssl1 <- rename(ssl1, dist_land = dist_land, dist_500m = dist500m)
+
 # Save output
-saveRDS(ssl1, "../Data_Processed/UsedAndAvail_SpeedBuff_20211003.rds")
+saveRDS(ssl1, "../Data_Processed/Telemetry/UsedAndAvail_SpeedBuff_20211003.rds")
 
 ```
 
-```{r avail method 2: resample covars to 5 km}
+```{r avail method 2: enlarged buffer size around used points}
 
+# Create individually buffered points based on 
+sealibuffs <- ssl %>% group_by(deploy_id) %>% st_buffer(dist=20000) # Convert radius to m
+# st_write(sealibuffs, "../Data_Processed/sealibuffs.shp")
+
+# Create a list of static covariates 
+staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
+
+# Create a list of all covariates and check resolution 
+raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+rasres <- lapply(raslist, function(x) res(x)/1000)
+
+
+# Extract available locations from buffered used locations 
+# Takes ~ 1.3 hours 
+
+start <- proc.time()
+# q <- lapply(1:length(sealibuffs$deploy_id),
+#             function(x){custom_extract_avail(sealibuffs[x,], covarstack=staticcovars)})
+avail <- data.frame()
+for(i in 1:length(sealibuffs$deploy_id)){
+  if(i %% 100 == 0){print(i)}
+  q <- custom_extract_avail(sealibuffs[i,], covarstack=staticcovars)
+  avail <- rbind(avail, q)
+}
+
+# avail <- do.call(rbind, q)
+proc.time()-start
+
+saveRDS(avail, "../Data_Processed/Telemetry/Available_20kmBuff_20211003.rds")
+
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+# Read in previously extracted available locations (created from above code chunk)
+avail <- readRDS("../Data_Processed/Telemetry/AvailablelocswithCovars_20kmBuff_20211003.rds") %>% mutate(used=factor(used)) # Fixed in code above can remove once rerun
+
+# Rename x and y into northing and easting
+avail <- avail %>% rename(northing = y, easting= x) %>% st_as_sf(coords=c("easting", "northing"), remove=F) 
+st_crs(avail) <- st_crs(ssl)
+
+# Extract static covariates at used locations
+ssl <- cbind(ssl, raster::extract(staticcovars, ssl))
+
+# Combine available data with used data 
+ssl2 <- bind_rows(ssl, avail)
+
+# Extract dynamic weekly covariate values at used and available locations 
+# Extract covariate data at used locations 
+ssl2$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl2), t = ssl2$date, covariates=sst)
+ssl2$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl2), t = ssl2$date, covariates=wind)
+ssl2$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl2), t = ssl2$date, covariates=ship)
+ssl2$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl2), t = ssl2$date, covariates=fish)
+ssl21 <- ssl2 %>% filter(!date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh1),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke1)
+)
+ssl22 <- ssl2 %>% filter(date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh2),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke2)
+)
+ssl2 <- rbind(ssl21, ssl22)
+
+# Standardize column names to lowercase with underscores between words
+colnames(ssl2) <- tolower(colnames(ssl2)) 
+ssl2 <- rename(ssl2, dist_land = distland, dist_500m = dist500m)
+
+# Save output
+saveRDS(ssl2, "../Data_Processed/Telemetry/UsedAndAvail_20kmBuff_20211003.rds")
+
+```
+
+```{r avail method 3: resample covars to 5 km}
+
+
+# Create individually buffered points based on 
+sealibuffs <- ssl %>% group_by(deploy_id) %>% st_buffer(dist=ssl$radius*1000) # Convert radius to m
+# st_write(sealibuffs, "../Data_Processed/sealibuffs.shp")
 
 # Create 5km raster template
 ras_5km <- crop(fish, study)
@@ -164,8 +257,8 @@ res(ras_5km) <- 5000
 
 # NOT SURE WHY THIS ISN'T WORKING.... WHAT'S UP WITH THE FILE CONNECTION? WILL TRY OVER AGAIN FROM BEGINNING
 depth_5km <- resample(depth, ras_5km)
-distland_5km <- resample(distland, ras_5km)
-dist500m_5km <- resample(dist500m, ras_5km)
+dist_land_5km <- resample(dist_land, ras_5km)
+dist_500m_5km <- resample(dist_500m, ras_5km)
 slope_5km <- resample(slope, ras_5km)
 ship_5km <- resample(ship, ras_5km)
 fish_5km <- resample(fish, ras_5km)
@@ -177,45 +270,157 @@ ssh2_5km <- resample(ssh2, ras_5km)
 wind_5km <- resample(wind, ras_5km) # NOT WORKING: "Cannot open the connection" 
 
 
-# Extract available locations from buffered used locations 
-# Takes ~ 1.3 hours 
-# 
+# Create a list of static covariates
+staticcovars <- raster::stack(dist_land_5km, dist_500m_5km, depth_5km, slope_5km)
+
+# Create a list of all covariates and check resolution
+raslist <- list(depth_5km, dist_land_5km, dist_500m_5km, slope_5km,
+                ship_5km, fish_5km, sst_5km, eke1_5km, eke2_5km, ssh1_5km, ssh2_5km, wind_5km)
+rasres <- lapply(raslist, function(x) res(x)/1000)
+
+# Extract available locations from buffered used locations
+# Takes ~ 1.3 hours
+
 start <- proc.time()
-q <- lapply(1:length(usedbuff$DeployID),
-            function(x){custom_extract_avail(usedbuff[x,], covarstack=covarstack)})
-avail <- do.call(rbind, q)
+# q <- lapply(1:length(sealibuffs$deploy_id),
+#             function(x){custom_extract_avail(sealibuffs[x,], covarstack=staticcovars)})
+avail <- data.frame()
+for(i in 1:length(sealibuffs$deploy_id)){
+  print(i)
+  q <- custom_extract_avail(sealibuffs[i,], covarstack=staticcovars)
+  avail <- rbind(avail, q)
+}
+
+# avail <- do.call(rbind, q)
 proc.time()-start
 
+saveRDS(avail, "../Data_Processed/Telemetry/Available_5kmCell_20211003.rds")
 
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 # Read in previously extracted available locations (created from above code chunk)
-avail <- readRDS("../Data_Processed/AvailablelocswithCovars_5km.rds")
+avail <- readRDS("../Data_Processed/Telemetry/Available_5kmCell_20211003.rds")
 
+# Rename x and y into northing and easting
+avail <- avail %>% rename(northing = y, easting= x) %>% 
+                   st_as_sf(coords=c("easting", "northing"), remove=F) %>%
+                   mutate(used=factor(0))
+st_crs(avail) <- st_crs(ssl)
 
+# Extract static covariates at used locations
+ssl <- cbind(ssl, raster::extract(staticcovars, ssl))
 
+# Combine available data with used data 
+ssl3 <- bind_rows(ssl, avail)
 
-
-# Extract covariate data at available locations 
-avail <- avail %>% rename(northing = y, easting= x)
-avail$sst <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=sst)
-avail$wind <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=wind)
-avail$ship <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=ship)
-avail$fish <- extract_covar_var_time_custom(xy= cbind(avail$easting, avail$northing), t = avail$Date, covariates=fish)
-avail1 <- avail %>% filter(!Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=ssh1),
-  eke = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=eke1)
+# Extract dynamic weekly covariate values at used and available locations 
+# Extract covariate data at used locations 
+ssl3$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl3), t = ssl3$date, covariates=sst_5km)
+ssl3$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl3), t = ssl3$date, covariates=wind_5km)
+ssl3$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl3), t = ssl3$date, covariates=ship_5km)
+ssl3$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl3), t = ssl3$date, covariates=fish_5km)
+ss2a <- ssl3 %>% filter(!date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh1_5km),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke1_5km)
 )
-avail2 <- avail %>% filter(Date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=ssh2),
-  eke = extract_covar_var_time_custom(xy= cbind(.data$easting, .data$northing), t = .data$Date, covariates=eke2)
+ssl3a <- ssl3 %>% filter(date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
+  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh2_5km),
+  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke2_5km)
 )
-avail <- rbind(avail1, avail2)
+ssl3 <- rbind(ssla, sslb)
 
-# Combine used and available data frames
+# Standardize column names to lowercase with underscores between words
+colnames(ssl3) <- tolower(colnames(ssl3)) 
+ssl3 <- rename(ssl3, dist_land = distland, dist_500m = dist500m)
 
-ssl$Used <- factor(ssl$Used, levels=c(1,0), labels=c("Used","Available"))
-ssl$DeployID <- factor(ssl$DeployID)
-
-saveRDS(ssl, "../Data_Processed/SSL_UsedAndAvail_WithCovars_5km.rds")
+# Save output
+saveRDS(ssl3, "../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds")
 
 ```
+
+```{r avail method 4: weekly minimum convex polygon home ranges, eval=FALSE}
+library(amt) 
+
+trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=date, id = deploy_id, sst=sst, 
+                crs = CRS("+init=epsg:4326"))
+trk.class<-class(trk)
+
+# Calculate time of day based on lat/lon and timestamp
+trk <- trk %>% time_of_day()
+class(trk) <- trk.class
+
+#' Now, we can transform back to geographic coordinates
+trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
+
+
+library(adehabitatHR)
+test <- ssl %>% nest(-deploy_id, -weekofyear, -year, northing, easting) 
+
+test[1] %>% as("Spatial")
+
+```
+
+```{r testing contamination, eval=FALSE} 
+
+avail1 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_SpeedBuff_20211003.rds") %>% 
+          dplyr::select(choice_id, used, Bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind) %>% 
+          st_drop_geometry()
+avail2 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_20kmBuff_20211003.rds") %>% 
+          dplyr::select(choice_id, used, Bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind) %>% 
+          st_drop_geometry()
+avail3 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds") %>% 
+          dplyr::select(choice_id, used, Bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind) %>% 
+          st_drop_geometry()
+
+
+contamination_calc <- function(usedandavail){
+    used1 <- usedandavail %>% 
+             filter(used==1) %>% 
+             dplyr::select(-used)
+    temp <- left_join(usedandavail, used1, by="choice_id") %>% filter(used==0) 
+    
+    sames <- temp %>% mutate(Bathymetry = ifelse(Bathymetry.x == Bathymetry.y, 1, 0),
+                         dist_land = ifelse(dist_land.x == dist_land.y, 1, 0),
+                         dist_500m = ifelse(dist_500m.x == dist_500m.y, 1, 0),
+                         slope = ifelse(slope.x == slope.y, 1, 0),
+                         ship = ifelse(ship.x == ship.y, 1, 0),
+                         fish = ifelse(fish.x == fish.y, 1, 0),
+                         sst = ifelse(sst.x == sst.y, 1, 0),
+                         eke = ifelse(eke.x == eke.y, 1, 0),
+                         ssh = ifelse(ssh.x == ssh.y, 1, 0),
+                         wind = ifelse(wind.x == wind.y, 1, 0),
+                          ) %>% 
+                      dplyr::select(choice_id, Bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind)
+
+     sames <- as.data.frame(apply(sames, 2, as.numeric))
+     grand_contamination <- round(apply(sames, 2, function(x){sum(x, na.rm=T)})/length(sames$choice_id), 2)
+     return(as.data.frame(grand_contamination))
+     #    
+     # contam <- sames %>% 
+     #            group_by(choice_id) %>%
+     #            summarize(Bathymetry_con=sum(Bathymetry)/5,
+     #                      dist_land_con=sum(dist_land)/5,
+     #                      dist_500m_con=sum(dist_500m)/5,
+     #                      slope_con=sum(slope)/5,
+     #                      ship_con=sum(ship)/5,
+     #                      fish_con=sum(fish)/5,
+     #                      sst_con=sum(sst)/5,
+     #                      eke_con=sum(eke)/5,
+     #                      ssh_con=sum(ssh)/5,
+     #                      wind_con=sum(wind)/5
+     #                      )
+
+}
+
+contamination <- contamination_calc(avail1) %>% rename(speedbuff = grand_contamination)
+
+
+```
+
+
+
+
+
+
+
+
