@@ -73,7 +73,7 @@ lyrs <- append(lyrs, lyrs2)
 lyrs <- lapply(lyrs, function(x){st_read(paste0("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001/",seali[x]))})
 
 # Make each table into an sf object
-# lyrs <- lapply(lyrs, function(x){st_as_sf(x, coords = c("Longitude","Latitude"), crs=4326)})
+# lyrs <- lapply(lyrs, function(x){st_as_sf(x, coords = c("longitude","latitude"), crs=4326)})
 
 # Separate first table layer
 sealis <- lyrs[[1]]
@@ -86,21 +86,28 @@ for(i in 1:length(lyrs)){
   sealis <- rbind(sealis, temp)
 }
 
+# Change all column names to lowercase
+colnames(sealis) <- tolower(colnames(sealis))
+
+# Save clean seali data 
+sealis <- rename(sealis, deploy_id = deploy_id, error_rad = error.radius, error_major = error.semi.major.axis, 
+               error_minor = error.semi.minor.axis, error_ellipse = error.ellipse.orientation)
+
 # Fix time field 
 # (Have to do it separately for gps and argos)
-sealis$Date_old <- sealis$Date
-gps <- sealis[sealis$Type == "FastGPS",]
-argos <- sealis[sealis$Type == "Argos",]
+sealis$date_old <- sealis$date
+gps <- sealis[sealis$type == "FastGPS",]
+argos <- sealis[sealis$type == "Argos",]
 
 
-argos$Date <- as.POSIXct(argos$Date, format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
+argos$date <- as.POSIXct(argos$date, format=c("%Y/%m/%d %H:%M:%S"), tz="GMT")
 # All but 353 gps points are in the format of days since 12/30/1899
-# Need to convert those to Dates and then also fix the other 300ish points 
+# Need to convert those to dates and then also fix the other 300ish points 
 # Internet said it should be days since 1/1/1900, but that didn't work. No idea why. 
 # But this matches up with the Microsoft Access database
-gps$Date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+ 
-  as.difftime(as.numeric(gps$Date),units="days")
-gps$Date[is.na(gps$Date)] <- as.POSIXct(gps$Date_old[is.na(gps$Date)], format=c("%Y/%m/%d %H:%M:%S"),
+gps$date <-   as.POSIXct("1899-12-30 00:00:00", tz="GMT")+ 
+  as.difftime(as.numeric(gps$date),units="days")
+gps$date[is.na(gps$date)] <- as.POSIXct(gps$date_old[is.na(gps$date)], format=c("%Y/%m/%d %H:%M:%S"),
                                         tz="GMT")
 
 sealis_old <- sealis 
@@ -109,38 +116,36 @@ sealis_old <- sealis
 sealis <- rbind(gps, argos)
 
 # Round date to minute scale 
-sealis$Date <- round(sealis$Date, "mins")
-
+sealis$date <- round(sealis$date, "mins")
 
 # Create various date reference categories for future modeling 
-sealis$fortnight <- ceiling(lubridate::week(sealis$Date) / 2)
-sealis$weekofyear <- lubridate::isoweek(sealis$Date)
-sealis$month <- lubridate::month(sealis$Date)
-sealis$year <- lubridate::year(sealis$Date)
-sealis$dayofyear <- lubridate::date(sealis$Date)
+sealis$fortnight <- ceiling(lubridate::week(sealis$date) / 2)
+sealis$weekofyear <- lubridate::isoweek(sealis$date)
+sealis$month <- lubridate::month(sealis$date)
+sealis$year <- lubridate::year(sealis$date)
+sealis$dayofyear <- lubridate::date(sealis$date)
 
 # Remove low quality points 
-sealis <- sealis[-which(sealis$Quality %in% c("A","B","0","Z")),]
+sealis <- sealis[-which(sealis$quality %in% c("A","B","0","Z")),]
 # sealis$inbounds <- lengths(st_within(sealis, st_transform(study, 4326)))
 # sealis <- sealis[which(sealis$inbounds == TRUE),]
 
-############ CHECK ON THIS ###############
 # 40 Duplicated rows (excluding geometry column)
 test <- duplicated(data.frame(sealis))
 # Remove duplicated rows 
 sealis <- sealis[which(duplicated(data.frame(sealis))==FALSE),]
 
 # Remove points from same time and SSL (keep smaller error radius)
-sealis$ptID <- 1:length(sealis$DeployID)
-test <- sealis %>% filter(Type == "Argos") %>% group_by(DeployID, Date) %>% slice(which.min(Error.radius))
-test2 <- filter(sealis, Type != "Argos")
+sealis$ptID <- 1:length(sealis$deploy_id)
+test <- sealis %>% filter(type == "Argos") %>% group_by(deploy_id, date) %>% slice(which.min(error_radius))
+test2 <- filter(sealis, type != "Argos")
 sealis <- rbind(test, test2)
 
 # Put back in temporal order by sea lion
-sealis <- sealis[order(sealis$DeployID, sealis$Date),]
+sealis <- sealis[order(sealis$deploy_id, sealis$date),]
 
 # Convert to spatial object
-sealis <- st_as_sf(sealis, coords=c("Longitude", "Latitude"), crs=4326)
+sealis <- st_as_sf(sealis, coords=c("longitude", "latitude"), crs=4326)
 
 # Keep latitude and longitude columns
 sealis$lat <- st_coordinates(sealis)[,"Y"]
@@ -154,49 +159,45 @@ sealis$northing <- st_coordinates(sealis)[,"Y"]
 sealis$easting <- st_coordinates(sealis)[,"X"]
 
 # Remove blank columns 
-sealis <- subset(sealis, select=-c(Offset, Offset.orientation, GPE.MSD, GPE.U, Count))
-
-# Save clean seali data 
-sealis <- rename(sealis, ErrorRad = Error.radius, ErrorMajor = Error.Semi.major.axis, 
-               ErrorMinor = Error.Semi.minor.axis, ErrorEllipse = Error.Ellipse.orientation)
+sealis <- subset(sealis, select=-c(offset, offset.orientation, gpe.msd, gpe.u, count))
 
 # Implement speed filter 
-sealis <- sealis %>% arrange(DeployID, Date) %>% 
-                group_by(DeployID) %>% 
-                mutate(spdfilt = argosfilter::vmask(lat=lat, lon=lon, dtime=Date, vmax = 3)) %>% 
+sealis <- sealis %>% arrange(deploy_id, date) %>% 
+                group_by(deploy_id) %>% 
+                mutate(spdfilt = argosfilter::vmask(lat=lat, lon=lon, dtime=date, vmax = 3)) %>% 
                 ungroup()
 
 # Remove speed filtered points 
 sealis_dirty <- sealis 
-sealis <- sealis %>%  dplyr::filter(spdfilt != "removed") %>% dplyr::arrange(Date)
+sealis <- sealis %>%  dplyr::filter(spdfilt != "removed") %>% dplyr::arrange(date)
 
 # Plot change between speed filtered and original, separated by ssl
 sealis_dirty %>% st_drop_geometry() %>% 
-            dplyr::arrange(Date) %>% 
+            dplyr::arrange(date) %>% 
             ggplot() + 
               geom_path(aes(x=lon, y=lat)) + 
               geom_path(data=sealis, aes(x=lon, y=lat), col="red") + 
-              facet_wrap(~DeployID, scales = "free")
+              facet_wrap(~deploy_id, scales = "free")
 
 # plot clean data by ssl
 # Plot change between speed filtered and original, separated by ssl
 sealis %>% st_drop_geometry() %>% 
-            dplyr::arrange(Date) %>% 
+            dplyr::arrange(date) %>% 
             ggplot() + 
               geom_path(aes(x=lon, y=lat)) + 
-              facet_wrap(~DeployID, scales = "free")
+              facet_wrap(~deploy_id, scales = "free")
 
 # Map of study area 
 ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
   geom_sf(data=study, fill=NA, color="red")+
   # geom_path is much faster than geom_sf
-  geom_path(data=sealis, aes(x=easting, y=northing, color=DeployID))
+  geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id))
 
 # Tag duration timeline 
-timeline <- sealis %>% st_drop_geometry() %>% group_by(DeployID) %>% summarize(starttag = as.Date(min(Date)), endtag=as.Date(max(Date)))
+timeline <- sealis %>% st_drop_geometry() %>% group_by(deploy_id) %>% summarize(starttag = as.Date(min(date)), endtag=as.Date(max(date)))
 
-ggplot(timeline, aes(x=starttag, y= DeployID)) +
+ggplot(timeline, aes(x=starttag, y= deploy_id)) +
   geom_linerange(aes(xmin = starttag, xmax = endtag),color = "black",size = 2) + 
   scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
   theme(axis.text.x=element_text(angle=45, hjust=1))+
@@ -217,48 +218,21 @@ euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
   timediff <- as.numeric(difftime(time2,time1,units=c("hours")))
   return(distance / timediff)
 }
-  
-
-# # Calculate Euclidean speed
-# sealis <- sealis %>% 
-#   group_by(DeployID) %>%
-#   arrange(DeployID, Date) %>% 
-#   mutate(difftime = timediff <- as.numeric(difftime(Date,lag(Date),units=c("mins"))),
-#          speed = euclidean_speed(northing, lag(northing), easting, lag(easting), Date, lag(Date)))
-# 
-# # Identify locations with another signal occurring within the same minute 
-# sameminute <- sealis %>% st_drop_geometry() %>% group_by(DeployID, Date) %>% tally() %>% filter(n > 1)
-# 
-# rm <- list()
-# 
-# for(i in 1:length(sameminute$DeployID)){
-#   t <- sealis[which(sealis$DeployID == sameminute$DeployID[i] & sealis$Date == sameminute$Date[i]),]
-#   if(length(unique(t$Type)) > 1){
-#   for(j in 1:length(t$DeployID)){
-#     if(t$Type[j] != "FastGPS"){ rm <- append(rm, t$ptID[j])}
-#   }
-#   }
-#   if(length(unique(t$Type)) == 1){rm <- append(rm, t$ptID[1])}
-# }
-# 
-# # Remove observations from the data set 
-# sealis <- sealis[-which(sealis$ptID %in% rm),]
-# sealis <- sealis[-which(sealis$ptID == 48742),] # manually remove last sameminute point 
 
 # Recalculate Euclidean speed
 sealis <- sealis %>% 
-  group_by(DeployID) %>%
-  arrange(DeployID, Date) %>% 
-  mutate(timediff = as.numeric(difftime(Date,lag(Date),units=c("mins"))),
+  group_by(deploy_id) %>%
+  arrange(deploy_id, date) %>% 
+  mutate(timediff = as.numeric(difftime(date,lag(date),units=c("mins"))),
          speed_kmhr = euclidean_speed(northing, lag(northing), easting, lag(easting), 
-                                 Date, lag(Date)))
+                                 date, lag(date)))
 
 
 # Need to clean out inf and NA speed as well as those above a certain threhold
 # How to determine threshold?
 sealispeed <- sealis %>% 
   st_drop_geometry() %>% 
-  group_by(DeployID) %>% 
+  group_by(deploy_id) %>% 
   summarize(speed_avg = mean(speed_kmhr, na.rm=T), 
             speed_sd = sd(speed_kmhr, na.rm=T), 
             timediff = mean(timediff, na.rm=T)/60) # convert to hourly
@@ -266,7 +240,7 @@ sealispeed <- sealis %>%
 # radius = c(a + 2b)
 sealispeed$radius <- sealispeed$timediff*(sealispeed$speed_avg + 2*sealispeed$speed_sd) 
 
-sealis <- left_join(sealis, sealispeed, by="DeployID")
+sealis <- left_join(sealis, sealispeed, by="deploy_id")
 
 ```
 
@@ -279,21 +253,21 @@ sum(sealis$land, na.rm=T)/length(sealis$land)*100
 
 watersealis <- sealis[is.na(sealis$land),]
 
-ptcts_month <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, month) %>% summarize(n=n())
-ptcts_month <- ptcts_month%>% group_by(DeployID) %>% summarize(meanmonthlypts = mean(n))
+ptcts_month <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, year, month) %>% summarize(n=n())
+ptcts_month <- ptcts_month%>% group_by(deploy_id) %>% summarize(meanmonthlypts = mean(n))
 
-ptcts_biweek <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, fortnight) %>% summarize(n=n())
-ptcts_biweek <- ptcts_biweek%>% group_by(DeployID) %>% summarize(meanbiweekpts = mean(n))
+ptcts_biweek <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, year, fortnight) %>% summarize(n=n())
+ptcts_biweek <- ptcts_biweek%>% group_by(deploy_id) %>% summarize(meanbiweekpts = mean(n))
 
-ptcts_week <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, year, weekofyear) %>% summarize(n=n())
-ptcts_week <- ptcts_week%>% group_by(DeployID) %>% summarize(meanweekpts = mean(n))
+ptcts_week <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, year, weekofyear) %>% summarize(n=n())
+ptcts_week <- ptcts_week%>% group_by(deploy_id) %>% summarize(meanweekpts = mean(n))
 
-ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(DeployID, dayofyear) %>% summarize(n=n())
-ptcts_day <- ptcts_day%>% group_by(DeployID) %>% summarize(meandaypts = mean(n))
+ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, dayofyear) %>% summarize(n=n())
+ptcts_day <- ptcts_day%>% group_by(deploy_id) %>% summarize(meandaypts = mean(n))
 
-ptcts <- left_join(ptcts_month, ptcts_biweek, by="DeployID")
-ptcts <- left_join(ptcts, ptcts_week, by="DeployID")
-ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
+ptcts <- left_join(ptcts_month, ptcts_biweek, by="deploy_id")
+ptcts <- left_join(ptcts, ptcts_week, by="deploy_id")
+ptcts <- left_join(ptcts, ptcts_day, by="deploy_id")
 
 # write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
 
@@ -309,7 +283,7 @@ ptcts <- left_join(ptcts, ptcts_day, by="DeployID")
 ```{r save clean data}
 
 # add in unique id for each used point
-watersealis$choice_id <- 1:length(watersealis$DeployID)
+watersealis$choice_id <- 1:length(watersealis$deploy_id)
 
 # Save clean data output 
 saveRDS(watersealis, "../Data_Processed/watersealis.rds")
@@ -320,7 +294,7 @@ saveRDS(watersealis, "../Data_Processed/watersealis.rds")
 # Convert used locations to trk objects using amt package
 library(amt)
 
-trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=Date, id = DeployID, sst=sst, 
+trk <- mk_track(st_drop_geometry(used), .x=lon, .y=lat, .t=date, id = deploy_id, sst=sst, 
                 crs = CRS("+init=epsg:4326"))
 trk.class<-class(trk)
 
@@ -340,11 +314,11 @@ trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
 #' Use separate axes for each individual (add scales="free" to facet_wrap)
 #+fig.height=12, fig.width=12
 ggplot(sealis, aes(x=lon, y=lat))+geom_point()+
-  facet_wrap(~DeployID, scales="free")
+  facet_wrap(~deploy_id, scales="free")
 
 
 # test individual ssls 
-ssl781 <- sealis %>% filter(DeployID == "SSL2019781KOD")
+ssl781 <- sealis %>% filter(deploy_id == "SSL2019781KOD")
 
 # Leaflet map 
 leaflet(ssl781)%>%addTiles()%>%
@@ -362,9 +336,9 @@ ggmap(map) +
 library(amt)
 library(purrr)
 
-sealis$DeployID <- as.factor(sealis$DeployID)
+sealis$deploy_id <- as.factor(sealis$deploy_id)
 
-trk <- mk_track(st_drop_geometry(sealis), .x=lon, .y=lat, .t=Date, id = DeployID, 
+trk <- mk_track(st_drop_geometry(sealis), .x=lon, .y=lat, .t=date, id = deploy_id, 
                 crs = CRS("+init=epsg:4326"))
 trk.class<-class(trk)
 
