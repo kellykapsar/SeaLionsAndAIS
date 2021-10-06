@@ -92,8 +92,8 @@ This landmask is at the same scale as the bathymetry data. Note: Zero values wer
 
 ```{r GEBCO landmask}
 landmask <- bathy
-landmask[landmask > 0] <- 1
-landmask[landmask < 0 | landmask == 0] <- NA
+landmask[landmask > 0 | landmask == 0] <- 1
+landmask[landmask < 0] <- NA
 
 landmaskDf <- as.data.frame(landmask, xy=TRUE) %>% drop_na()
 colnames(landmaskDf) <- c("x","y","land")
@@ -104,7 +104,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif")
+writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif", overwrite=TRUE)
 ```
 
 ## Slope
