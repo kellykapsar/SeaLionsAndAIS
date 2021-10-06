@@ -90,7 +90,7 @@ for(i in 1:length(lyrs)){
 colnames(sealis) <- tolower(colnames(sealis))
 
 # Save clean seali data 
-sealis <- rename(sealis, deploy_id = deploy_id, error_rad = error.radius, error_major = error.semi.major.axis, 
+sealis <- rename(sealis, deploy_id = deployid, error_radius = error.radius, error_major = error.semi.major.axis, 
                error_minor = error.semi.minor.axis, error_ellipse = error.ellipse.orientation)
 
 # Fix time field 
@@ -286,7 +286,7 @@ ptcts <- left_join(ptcts, ptcts_day, by="deploy_id")
 watersealis$choice_id <- 1:length(watersealis$deploy_id)
 
 # Save clean data output 
-saveRDS(watersealis, "../Data_Processed/watersealis.rds")
+saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 ```
 
 
