@@ -38,14 +38,14 @@ library(tidyverse)
 library(shiny)
 
 # Read in steller sea lion data 
-ssl_orig <- readRDS("../Data_Processed/SSL_UsedAndAvail_WithCovars.rds")  %>% 
-  group_by(DeployID, Date) %>% 
+ssl_orig <- readRDS("../Data_Processed/Telemetry/SSL_UsedAndAvail_WithCovars.rds")  %>% 
+  group_by(deploy_id, date) %>% 
   mutate(choice_id = cur_group_id()) %>% 
   ungroup()
 ssl <- ssl_orig %>% 
-  dplyr::select(DeployID, Used, choice_id, year, month, weekofyear, Bathymetry, DistLand, Dist500m, 
+  dplyr::select(deploy_id, used, choice_id, year, month, weekofyear, bathymetry, dist_land, dist_500m, 
                 slope, ssh, eke, wind, fish, ship, sst)
-cols <- c("DeployID", "Used", "choice_id", "year", "month")
+cols <- c("deploy_id", "used", "choice_id", "year", "month")
 ssl[cols] <- lapply(ssl[cols], factor)
 
 
@@ -55,8 +55,8 @@ ui <- fluidPage(
   # A scroll down list to pick a sea lion
   # A scroll down list to pick a variable
   sidebarPanel(
-    selectInput("indl", "Individual", unique(ssl$DeployID)), 
-    selectInput('xcol', 'X Variable', c("DeployID", "Used", "year", "month")),
+    selectInput("indl", "Individual", unique(ssl$deploy_id)), 
+    selectInput('xcol', 'X Variable', c("deploy_id", "Used", "year", "month")),
     selectInput('ycol', 'Y Variable', names(ssl)[7:16], 
     selected = names(ssl)[[2]])),
   # A space for a violin plot 
@@ -67,7 +67,7 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   
   selectedData <- reactive({
-    subset(ssl, DeployID ==  input$indl)
+    subset(ssl, deploy_id ==  input$indl)
   })
     
   output$plot1 <- renderPlot({
