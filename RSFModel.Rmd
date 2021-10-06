@@ -61,14 +61,14 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 Pull in SSL data. 
 
 ```{r}
-ssl_orig <- readRDS("../Data_Processed/SSL_UsedAndAvail_WithCovars.rds")  %>% 
-                    group_by(DeployID, Date) %>% 
+ssl_orig <- readRDS("../Data_Processed/Telemetry/SSL_UsedAndAvail_WithCovars.rds")  %>% 
+                    group_by(deploy_id, Date) %>% 
                     mutate(choice_id = cur_group_id()) %>% 
                     ungroup()
 ssl <- ssl_orig %>% 
-  dplyr::select(DeployID, Used, choice_id, year, month, weekofyear, Bathymetry, DistLand, Dist500m, 
+  dplyr::select(deploy_id, used, choice_id, year, month, weekofyear, bathymetry, dist_land, dist_500m, 
                 slope, ssh, eke, wind, fish, ship, sst)
-usedbuff <- readRDS("../Data_Processed/watersealibuffs.rds")
+usedbuff <- readRDS("../Data_Processed/Telemetry/watersealibuffs.rds")
 
 ```
 
@@ -80,17 +80,17 @@ summary(ssl); cat("\n")
 library(tidyverse)
 # Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
 
-# Violin plots of all covars: Used vs. available
-imap(dplyr::select(ssl, -DeployID, -Used, -choice_id, -year, -month, -weekofyear), ~ {
-  ggplot(ssl, aes(x=Used, y=.x, fill=Used)) +
+# Violin plots of all covars: used vs. available
+imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyear), ~ {
+  ggplot(ssl, aes(x=used, y=.x, fill=used)) +
     geom_violin() +
     geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
     ylab(.y)
 })
 
 # Violin plots of all covars: by individual
-imap(dplyr::select(ssl, -DeployID, -Used, -choice_id, -year, -month, -weekofyear), ~ {
-  ggplot(ssl, aes(x=DeployID, y=.x, fill=DeployID)) +
+imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyear), ~ {
+  ggplot(ssl, aes(x=deploy_id, y=.x, fill=deploy_id)) +
     geom_violin() +
     geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
     ylab(.y) +
@@ -98,7 +98,7 @@ imap(dplyr::select(ssl, -DeployID, -Used, -choice_id, -year, -month, -weekofyear
 })
 
 # Correlations between covariates 
-ssl %>% dplyr::select(Bathymetry, DistLand, Dist500m, slope, ssh, eke, wind, fish, ship, sst) %>% ggcorr(label=T)
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, ssh, eke, wind, fish, ship, sst) %>% ggcorr(label=T)
 
 
 # VIOLIN PLOTS INSTEAD
