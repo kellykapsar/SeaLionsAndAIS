@@ -358,7 +358,7 @@ saveRDS(ssl3, "../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds")
 
 ```
 
-```{r avail method 4: weekly minimum convex polygon home ranges, eval=FALSE}
+```{r avail method 4: weekly minimum convex polygon home ranges}
 
 # Create an ID column that identifies each unique individual/year/week combination
 ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, ssl$year, ssl$weekofyear))
@@ -463,24 +463,85 @@ ssl4b <- ssl4 %>% filter(date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>%
 )
 ssl4 <- rbind(ssl4a, ssl4b)
 
-# Drop geometry and standardize column names to lowercase with underscores between words
+# convert column names to lowercase 
 colnames(ssl4) <- tolower(colnames(ssl4)) 
+
+
+##################################################################
+############# CALCULATE PROXIMITY TO FISHING VESSELS ############# 
+##################################################################
+
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
+
+# Identify SSL locations outside the AIS boundaries
+ssl4$ais_bounds <- st_intersects(ssl4, aisbound_sf, sparse=FALSE)
+
+# Import ship data, create sf objects, combine into one sf object, and generate year value 
+ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
+ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% st_transform(prj)})
+ships <- do.call(rbind, ships) # Combine all ships into one sf object
+ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+
+# Standardize dates 
+ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
+ssl4$date <- format(ssl4$date, "%G-W%V")
+
+# Create nested shipping data frame 
+ships_nest <- ships[which(ships$AIS_Typ != "Fishing"),] %>% group_nest(date)
+fish_nest <- ships[which(ships$AIS_Typ == "Fishing"),] %>% group_nest(date)
+
+# Find nearest line to each point 
+prox <- function(points, lines){
+  # Isolate out only lines from the week of interest and extract from nested data
+  l <- lines[which(lines$date == points$date[1]),] %>% 
+        unnest(., cols=c(data)) %>%
+        mutate(geometry = st_sfc(geometry)) %>%
+        st_as_sf()
+  # Calculate nearest line to each point
+  nearest <- st_nearest_feature(points, l)
+  # Calculate distance to that line, convert to kilometers, and round 
+  dist <- round(as.numeric(st_distance(points, l[nearest,], by_element=T))/1000, 4) 
+  return(dist)
+}
+
+# TAKES ~1.5 HRS
+start <- proc.time()
+newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id), 1000, replace=F)
+             group_nest(date, keep=TRUE) %>% # Create set of nested data frames by week
+             rename(date_outer = date) %>% 
+             mutate(data = purrr::map(data, # Go within the data frame 
+                ~mutate(.x, prox_ships_km = prox(.x, ships_nest), 
+                            prox_fish_km = prox(.x, fish_nest)))) %>% # Add new columns within each df to calculate proximity
+             unnest(cols=c(data)) %>%         
+             mutate(geometry = st_sfc(geometry)) %>%
+             st_as_sf()
+saveRDS(newdata, "../Data_Processed/Telemetry/TEMP_ALLCOVARS.rds")
+proc.time()-start
+
+#################################################
+############# cLEAN UP DATA AND SAVE ############ 
+#################################################
+
+# Standardize column names
 ssl4 <- ssl4 %>% st_drop_geometry() %>% rename(dist_land = distland, dist_500m = dist500m,
                                                weeklyhr_id = id, used=case_, northing = y_, easting = x_) %>% 
-                  dplyr::select(weeklyhr_id, deploy_id, used, year, weekofyear, northing, easting, all_of(covar_names)) 
+                  dplyr::select(weeklyhr_id, deploy_id, used, date, year, weekofyear, northing, easting, 
+                                ais_bounds, all_of(covar_names)) 
 
 
-ssl4 <- st_as_sf(ssl4, coords = c("northing", "easting"), crs=prj, remove=FALSE)
+ssl4 <- st_as_sf(ssl4, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output
-saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211011.rds")
-st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211011.shp")
+saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.rds")
+st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.shp")
 
 # See how many complete cases are left in available 
-test <- ssl4 %>% st_drop_geometry() %>% filter(complete.cases(.))
+test <- ssl4 %>% st_drop_geometry() %>% filter(complete.cases(.), ais_bounds=TRUE)
 temp <- test %>% group_by(weeklyhr_id, used) %>% summarize(n=n())
 
-test <- data.frame(matrix(unlist(ssl4), nrow=nrow(ssl4)),stringsAsFactors=FALSE)
+
+
 ```
 
 ```{r testing contamination, eval=FALSE} 
