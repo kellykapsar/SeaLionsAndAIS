@@ -28,7 +28,7 @@ opar <- par()      # make a copy of current graphical parameters
 
 Study area boundaries. 
 
-```{r study area warning=FALSE}
+```{r study area, warning=FALSE}
 # Projection information for WGS84/UTM Zone 5N (EPSG:32605)
 prj <- 32605
 
@@ -61,14 +61,14 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 Pull in SSL data. 
 
 ```{r}
-ssl_orig <- readRDS("../Data_Processed/Telemetry/SSL_UsedAndAvail_WithCovars.rds")  %>% 
-                    group_by(deploy_id, Date) %>% 
+ssl_orig <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.rds")  %>% 
+                    st_drop_geometry() %>% 
+                    group_by(deploy_id, date) %>% 
                     mutate(choice_id = cur_group_id()) %>% 
                     ungroup()
-ssl <- ssl_orig %>% 
-  dplyr::select(deploy_id, used, choice_id, year, month, weekofyear, bathymetry, dist_land, dist_500m, 
-                slope, ssh, eke, wind, fish, ship, sst)
-usedbuff <- readRDS("../Data_Processed/Telemetry/watersealibuffs.rds")
+
+# Collect only complete cases 
+ssl <- ssl_orig %>% filter(complete.cases(.))
 
 ```
 
@@ -81,7 +81,7 @@ library(tidyverse)
 # Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
 
 # Violin plots of all covars: used vs. available
-imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyear), ~ {
+imap(dplyr::select(ssl, -deploy_id, -weeklyhr_id, -used, -choice_id, -date, -year, -ais_bounds, -weekofyear), ~ {
   ggplot(ssl, aes(x=used, y=.x, fill=used)) +
     geom_violin() +
     geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
@@ -89,7 +89,7 @@ imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyea
 })
 
 # Violin plots of all covars: by individual
-imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyear), ~ {
+imap(dplyr::select(ssl, -deploy_id, -weeklyhr_id, -used, -choice_id, -date, -year, -ais_bounds, -weekofyear), ~ {
   ggplot(ssl, aes(x=deploy_id, y=.x, fill=deploy_id)) +
     geom_violin() +
     geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
@@ -98,7 +98,8 @@ imap(dplyr::select(ssl, -deploy_id, -used, -choice_id, -year, -month, -weekofyea
 })
 
 # Correlations between covariates 
-ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, ssh, eke, wind, fish, ship, sst) %>% ggcorr(label=T)
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, ssh, eke, wind, fish, ship, sst, prox_ships_km, prox_fish_km)%>% 
+  ggcorr(label=T)
 
 
 # VIOLIN PLOTS INSTEAD
