@@ -61,7 +61,7 @@ raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2,
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Create a vector of covar names 
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish", "sst", "eke", "ssh", "wind")
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish", "sst", "eke", "ssh", "wind", "prox_fish_km", "prox_ships_km")
 
 # Function to identify random points within a set of polygons 
 # This also extracts raster values for static variables in the covar stack 
@@ -426,7 +426,7 @@ avail_pts$y_ <- as.numeric(avail_pts$y_)
 # Turn into spatial object
 avail_pts_sf <- st_as_sf(avail_pts, coords=c("x_", "y_"), crs=prj, remove=FALSE)
 
-# Extract week of year as data from original data 
+# Extract week of year as date from original data 
 ssl_dates <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summarize(date=min(date))
 avail_pts_sf <- left_join(avail_pts_sf, ssl_dates, by=c("id" = "weeklyhr_id"))
 
@@ -471,12 +471,6 @@ colnames(ssl4) <- tolower(colnames(ssl4))
 ############# CALCULATE PROXIMITY TO FISHING VESSELS ############# 
 ##################################################################
 
-# Boundary for AIS data acquisition
-aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
-
-# Identify SSL locations outside the AIS boundaries
-ssl4$ais_bounds <- st_intersects(ssl4, aisbound_sf, sparse=FALSE)
-
 # Import ship data, create sf objects, combine into one sf object, and generate year value 
 ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
 ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% st_transform(prj)})
@@ -519,8 +513,17 @@ newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id)
 saveRDS(newdata, "../Data_Processed/Telemetry/TEMP_ALLCOVARS.rds")
 proc.time()-start
 
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
+
+# Identify SSL locations outside the AIS boundaries
+ssl4$ais_bounds <- st_intersects(ssl4, aisbound_sf, sparse=FALSE)
+
+
+ssl4 <- newdata
+
 #################################################
-############# cLEAN UP DATA AND SAVE ############ 
+############# CLEAN UP DATA AND SAVE ############ 
 #################################################
 
 # Standardize column names
@@ -529,7 +532,7 @@ ssl4 <- ssl4 %>% st_drop_geometry() %>% rename(dist_land = distland, dist_500m =
                   dplyr::select(weeklyhr_id, deploy_id, used, date, year, weekofyear, northing, easting, 
                                 ais_bounds, all_of(covar_names)) 
 
-
+# Make it spatial again 
 ssl4 <- st_as_sf(ssl4, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output
@@ -537,8 +540,10 @@ saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.rds")
 st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.shp")
 
 # See how many complete cases are left in available 
+
+
 test <- ssl4 %>% st_drop_geometry() %>% filter(complete.cases(.), ais_bounds=TRUE)
-temp <- test %>% group_by(weeklyhr_id, used) %>% summarize(n=n())
+temp <- test %>% group_by(weeklyhr_id, used) %>% summarize(n=n()) %>% spread(used, n) %>% rename(used="TRUE", avail="FALSE") %>% mutate(ratio = avail/used)
 
 
 
