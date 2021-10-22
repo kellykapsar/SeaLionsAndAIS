@@ -40,6 +40,11 @@ study <- coords %>%
 ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
 ssl$used <- factor(1)
 
+# Create an ID column that identifies each unique individual/year/week combination
+ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, ssl$year, ssl$weekofyear))
+
+# st_write(ssl, "../Data_Processed/Telemetry/USedLocs_Clean.shp")
+
 # Read in covariates 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
 dist_500m <- raster("../Data_Processed/Dist500m.tif") %>% raster::mask(landmask, maskvalue=1)
@@ -68,7 +73,8 @@ covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish"
 # Accounts for points on land 
 
 custom_extract_avail <- function(poly, covarstack, npts = 5){
-  df <-  as.data.frame(sampleRandom(x=covarstack, size = npts, na.rm = TRUE, ext = as(poly, "Spatial"), xy = TRUE))
+  maskstack <- raster::mask(covarstack, poly)
+  df <-  as.data.frame(sampleRandom(x=maskstack, size = npts, na.rm = TRUE, ext = as(poly, "Spatial"), xy = TRUE))
   df$used <- factor(0)
   df$date <- poly$date
   df$deploy_id <- poly$deploy_id
@@ -78,7 +84,6 @@ custom_extract_avail <- function(poly, covarstack, npts = 5){
   df$weekofyear <- poly$weekofyear
   return(df)
 }
-
 
 # Extract dynamic covariate data at used locations 
 ### Modified from FROM AMT PACKAGE
@@ -359,11 +364,7 @@ saveRDS(ssl3, "../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds")
 ```
 
 ```{r avail method 4: weekly minimum convex polygon home ranges}
-
-# Create an ID column that identifies each unique individual/year/week combination
-ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, ssl$year, ssl$weekofyear))
-
-# # Isolate out variables of interest 
+# Isolate out variables of interest 
 ssl_simple <- ssl %>% select(weeklyhr_id, date, lon, lat)
 
 # Turn into an amt track
@@ -372,8 +373,8 @@ trk <- mk_track(st_drop_geometry(ssl_simple), .x=lon, .y=lat, .t=date, id = week
 trk.class<-class(trk)
 
 # Calculate time of day based on lat/lon and timestamp
-trk <- trk %>% time_of_day()
-class(trk) <- trk.class
+# trk <- trk %>% time_of_day()
+# class(trk) <- trk.class
 
 #' Now, we can transform back to geographic coordinates
 trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
@@ -382,53 +383,67 @@ trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
 summarize_sampling_rate(trk)
 summarize_sampling_rate_many(trk, c("id"))
 
-# Create random points around each weekly homerange
-# From https://movebankworkshopraleighnc.netlify.app/2019outputfiles/fisherrsf
-avail_pts_nstd <- trk %>%
-             nest(data=-"id") %>% 
-             # Note sure what factor = 5 does, but I think maybe its the available to used ratio? 
-             # For some reason it's giving me 10 available points per used point
-             mutate(rnd_pts = map(data, function(d) random_points(d, factor=5, hr="mcp")),
-                    hr_mcp = map(data, function(d) hr_mcp(d, levels=c(0.95)) %>% hr_isopleths()))
-avail_pts_nstd$deploy_id <- substr(avail_pts_nstd$id, 1, 13)
-avail_pts_nstd$year <- substr(avail_pts_nstd$id, 14, 17)
-avail_pts_nstd$weekofyear <- substr(avail_pts_nstd$id, 18, 19)
+# Create a list of static covariates 
+staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
 
 
-# Create polygon features from MCPs
-ssl_hr <- avail_pts_nstd %>% select(id, deploy_id, year, weekofyear, hr_mcp) %>% unnest(cols=c(id)) 
-class(ssl_hr) <- "data.frame"
+pointcounts <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summarize(n=n()) %>% ungroup()
 
-# Extract the homerange information for each sealiweek
-ssl_hr <- ssl_hr %>%
-           dplyr::mutate(hr_mcp = matrix(hr_mcp),
-           level = sapply(hr_mcp, function(x) magrittr::extract2(x, 1)),
-           what = sapply(hr_mcp, function(x) magrittr::extract2(x, 2)),
-           area = sapply(hr_mcp, function(x) magrittr::extract2(x, 3)),
-           geometry = sapply(hr_mcp, function(x) magrittr::extract2(x, 4)),
-           hr_mcp = NULL) %>% 
-          st_as_sf(crs=prj)
-ssl_hr$area <- round(ssl_hr$area, 3)
+ssl_hr <- data.frame()
+avail_pts <- data.frame()
+
+for(i in 1:length(unique(trk$id))){
+  if(i %% 10 == 0){ print(i)}
+  t <- trk[which(trk$id == unique(trk$id)[i]),]
+  npts <- pointcounts$n[which(pointcounts$weeklyhr_id == unique(trk$id)[i])]*5
+  hr_kde <- hr_kde(t, levels=c(0.95))
+  pts <- random_points(hr_kde, n = npts) %>% mutate(weeklyhr_id = unique(trk$id)[i]) 
+  landpts <- st_as_sf(pts, coords=c("x_", "y_"), crs=prj, remove = FALSE) %>% 
+             cbind(., raster::extract(staticcovars, .)) %>%
+             st_drop_geometry() %>% 
+             filter(!is.na(.data$Bathymetry))
+  
+  while(length(landpts$case_) < npts){
+    newpts <- random_points(hr_kde, n = npts-length(landpts$case_)) %>% mutate(weeklyhr_id = unique(trk$id)[i])
+    newlandpts <- st_as_sf(newpts, coords=c("x_", "y_"), crs=prj,  remove = FALSE) %>% 
+             cbind(., raster::extract(staticcovars, .)) %>%
+             st_drop_geometry() %>% 
+             filter(!is.na(.data$Bathymetry))
+    landpts <- rbind(landpts, newlandpts)
+  }
+  
+  
+  hr_kde <- hr_isopleths(hr_kde) %>% mutate(weeklyhr_id = unique(trk$id)[i])
+  
+  ssl_hr <- rbind(ssl_hr, hr_kde)
+  avail_pts <- rbind(avail_pts, landpts)
+}
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+# Clean up column names in available points 
+avail_pts$deploy_id <- substr(avail_pts$weeklyhr_id, 1, 13)
+avail_pts$year <- substr(avail_pts$weeklyhr_id, 14, 17)
+avail_pts$weekofyear <- substr(avail_pts$weeklyhr_id, 18, 19)
+
+avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
+                                  year = as.numeric(substr(avail_pts$weeklyhr_id, 14, 17)),
+                                  weekofyear = as.numeric(substr(avail_pts$weeklyhr_id, 18, 19)), 
+                                  used = 0) %>% 
+                           rename(northing = y_, easting = x_, dist_land = distland, dist_500m = dist500m) %>%
+                           select(-case_)
 
 # Save output polygons 
-# st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_MCP_weekly_20211007.shp")
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211020.shp")
 
-# Isolate out newly derived available coordinates
-avail_pts <- avail_pts_nstd %>% select(id, deploy_id, year, weekofyear, rnd_pts) %>% unnest(cols=c(id, rnd_pts))
-class(avail_pts) <- "data.frame"
 
-# Convert columns to numeric
-avail_pts$year <- as.numeric(avail_pts$year)
-avail_pts$weekofyear <- as.numeric(avail_pts$weekofyear)
-avail_pts$x_ <- as.numeric(avail_pts$x_)
-avail_pts$y_ <- as.numeric(avail_pts$y_)
-
-# Turn into spatial object
-avail_pts_sf <- st_as_sf(avail_pts, coords=c("x_", "y_"), crs=prj, remove=FALSE)
+ssl_new <- ssl %>% 
+            select(deploy_id, weeklyhr_id, date, year, weekofyear, northing, easting) %>% 
+            cbind(., raster::extract(staticcovars, .)) %>% 
+            mutate(used = 1)
 
 # Extract week of year as date from original data 
 ssl_dates <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summarize(date=min(date))
-avail_pts_sf <- left_join(avail_pts_sf, ssl_dates, by=c("id" = "weeklyhr_id"))
+avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id"))
 
 # Check that week of year re-calculation worked okay 
 # It works!
@@ -437,14 +452,21 @@ avail_pts_sf <- left_join(avail_pts_sf, ssl_dates, by=c("id" = "weeklyhr_id"))
 # ssl_datetest <- left_join(ssl, ssl_dates, by= "weeklyhr_id")
 # length(which(ssl_datetest$weekofyear.x != ssl_datetest$weekofyear.y))
 
-# Create a list of static covariates 
-staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
 
-# Extract values at used and available locations
-avail_pts_sf <- cbind(avail_pts_sf, raster::extract(staticcovars, avail_pts_sf))
+# Merge used with available 
+all_pts <- avail_pts %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
 
+
+
+
+
+# Save output points 
+st_write(all_pts, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.shp")
+saveRDS(all_pts, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.rds")
+
+all_pts <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.rds")
 # Rename to match other naming schemes
-ssl4 <- avail_pts_sf
+ssl4 <- all_pts
 
 
 # Extract dynamic weekly covariate values at used and available locations 
@@ -510,15 +532,13 @@ newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id)
              unnest(cols=c(data)) %>%         
              mutate(geometry = st_sfc(geometry)) %>%
              st_as_sf()
-saveRDS(newdata, "../Data_Processed/Telemetry/TEMP_ALLCOVARS.rds")
 proc.time()-start
 
 # Boundary for AIS data acquisition
 aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
 
 # Identify SSL locations outside the AIS boundaries
-ssl4$ais_bounds <- st_intersects(ssl4, aisbound_sf, sparse=FALSE)
-
+newdata$ais_bounds <- st_intersects(newdata, aisbound_sf, sparse=FALSE)
 
 ssl4 <- newdata
 
@@ -527,23 +547,15 @@ ssl4 <- newdata
 #################################################
 
 # Standardize column names
-ssl4 <- ssl4 %>% st_drop_geometry() %>% rename(dist_land = distland, dist_500m = dist500m,
-                                               weeklyhr_id = id, used=case_, northing = y_, easting = x_) %>% 
-                  dplyr::select(weeklyhr_id, deploy_id, used, date, year, weekofyear, northing, easting, 
-                                ais_bounds, all_of(covar_names)) 
+ssl4 <- ssl4 %>% st_drop_geometry() %>% rename(dist_land = distland, dist_500m = dist500m)
 
 # Make it spatial again 
 ssl4 <- st_as_sf(ssl4, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output
-saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.rds")
-st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.shp")
+saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211014.rds")
+st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211014.shp")
 
-# See how many complete cases are left in available 
-
-
-test <- ssl4 %>% st_drop_geometry() %>% filter(complete.cases(.), ais_bounds=TRUE)
-temp <- test %>% group_by(weeklyhr_id, used) %>% summarize(n=n()) %>% spread(used, n) %>% rename(used="TRUE", avail="FALSE") %>% mutate(ratio = avail/used)
 
 
 
