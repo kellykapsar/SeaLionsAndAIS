@@ -66,7 +66,7 @@ raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2,
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Create a vector of covar names 
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish", "sst", "eke", "ssh", "wind", "prox_fish_km", "prox_ships_km")
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish", "sst", "eke", "ssh", "wind", "prox_fish_km", "prox_ship_km")
 
 # Function to identify random points within a set of polygons 
 # This also extracts raster values for static variables in the covar stack 
@@ -363,7 +363,7 @@ saveRDS(ssl3, "../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds")
 
 ```
 
-```{r avail method 4: weekly minimum convex polygon home ranges}
+```{r avail method 4: weekly kde home ranges}
 # Isolate out variables of interest 
 ssl_simple <- ssl %>% select(weeklyhr_id, date, lon, lat)
 
@@ -392,6 +392,7 @@ pointcounts <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summariz
 ssl_hr <- data.frame()
 avail_pts <- data.frame()
 
+# Create 5 random non-land points within each weekly MCP for each used point
 for(i in 1:length(unique(trk$id))){
   if(i %% 10 == 0){ print(i)}
   t <- trk[which(trk$id == unique(trk$id)[i]),]
@@ -418,7 +419,6 @@ for(i in 1:length(unique(trk$id))){
   ssl_hr <- rbind(ssl_hr, hr_kde)
   avail_pts <- rbind(avail_pts, landpts)
 }
-browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 # Clean up column names in available points 
 avail_pts$deploy_id <- substr(avail_pts$weeklyhr_id, 1, 13)
@@ -429,16 +429,17 @@ avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 1
                                   year = as.numeric(substr(avail_pts$weeklyhr_id, 14, 17)),
                                   weekofyear = as.numeric(substr(avail_pts$weeklyhr_id, 18, 19)), 
                                   used = 0) %>% 
-                           rename(northing = y_, easting = x_, dist_land = distland, dist_500m = dist500m) %>%
+                           rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
                            select(-case_)
 
 # Save output polygons 
-st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211020.shp")
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211029.shp")
 
 
 ssl_new <- ssl %>% 
             select(deploy_id, weeklyhr_id, date, year, weekofyear, northing, easting) %>% 
             cbind(., raster::extract(staticcovars, .)) %>% 
+            rename(dist_land = DistLand, dist_500m = Dist500m) %>%
             mutate(used = 1)
 
 # Extract week of year as date from original data 
@@ -456,18 +457,8 @@ avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id")
 # Merge used with available 
 all_pts <- avail_pts %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
 
-
-
-
-
-# Save output points 
-st_write(all_pts, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.shp")
-saveRDS(all_pts, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.rds")
-
-all_pts <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211021.rds")
 # Rename to match other naming schemes
 ssl4 <- all_pts
-
 
 # Extract dynamic weekly covariate values at used and available locations 
 # Extract covariate data at used locations 
@@ -487,8 +478,9 @@ ssl4 <- rbind(ssl4a, ssl4b)
 
 # convert column names to lowercase 
 colnames(ssl4) <- tolower(colnames(ssl4)) 
+```
 
-
+```{r proximity calculations}
 ##################################################################
 ############# CALCULATE PROXIMITY TO FISHING VESSELS ############# 
 ##################################################################
@@ -527,7 +519,7 @@ newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id)
              group_nest(date, keep=TRUE) %>% # Create set of nested data frames by week
              rename(date_outer = date) %>% 
              mutate(data = purrr::map(data, # Go within the data frame 
-                ~mutate(.x, prox_ships_km = prox(.x, ships_nest), 
+                ~mutate(.x, prox_ship_km = prox(.x, ships_nest), 
                             prox_fish_km = prox(.x, fish_nest)))) %>% # Add new columns within each df to calculate proximity
              unnest(cols=c(data)) %>%         
              mutate(geometry = st_sfc(geometry)) %>%
@@ -542,24 +534,67 @@ newdata$ais_bounds <- st_intersects(newdata, aisbound_sf, sparse=FALSE)
 
 ssl4 <- newdata
 
+```
+
+```{r final cleaning and save}
+
 #################################################
 ############# CLEAN UP DATA AND SAVE ############ 
 #################################################
 
-# Standardize column names
-ssl4 <- ssl4 %>% st_drop_geometry() %>% rename(dist_land = distland, dist_500m = dist500m)
+# Turn used into a factor, log transform skewed vars, and drop geometry
+ssl_orig <- ssl4 %>% mutate(used = as.factor(used), 
+                           logfish = log(fish+1), 
+                           logship = log(ship+1)) %>% 
+                    st_drop_geometry()
 
-# Make it spatial again 
-ssl4 <- st_as_sf(ssl4, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+# ID choice sets for discrete choice model 
+# NOTE: I'M PRETTY SURE THIS IS AN INCORRECT WAY TO PARAMETERIZE THIS MODEL, BUT I'M DOING IT JUST TO SEE IF I CAN GET THE 
+# EXAMPLE STAN CODE RUNNING BECAUSE THAT'S HOW IT'S ALREADY CODED... 
+temp1 <- ssl_orig %>% dplyr::filter(used == 0) %>% group_by(weeklyhr_id) %>% mutate(choice_id = rep(1:(length(year)/5), each=5))
+temp2 <- ssl_orig %>% dplyr::filter(used == 1) %>% group_by(weeklyhr_id) %>% mutate(choice_id = 1:length(year))
 
-# Save output
-saveRDS(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211014.rds")
-st_write(ssl4, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211014.shp")
+ssl <- rbind(temp1, temp2)
+
+# Reorder columns to a more logical order and remove any rows with NA values for covariates
+# Create a list of covariate names (NEW)
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+
+colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names))
+
+ssl <- ssl[,colorder] %>% na.omit() %>% as.data.frame()
+
+# Remove choice_ids with insufficient sample size due to NA values 
+tooshort <- ssl %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
+ssl <- left_join(ssl, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id")) 
+ssl <- ssl[which(is.na(ssl$tooshort)),]
+
+# Recalculate choice sets now that short ones have been removed
+temp1 <- ssl %>% dplyr::filter(used == 0) %>% group_by(weeklyhr_id) %>% mutate(choice_id = rep(1:(length(year)/5), each=5))
+temp2 <- ssl %>% dplyr::filter(used == 1) %>% group_by(weeklyhr_id) %>% mutate(choice_id = 1:length(used))
+
+ssl <- rbind(temp1, temp2)
 
 
+ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
 
+# Create an individual id
+ssl <- ssl %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
+
+# Save output as non-spatial and without coordinates
+ssl_nocoords <- ssl %>% select(-easting, -northing, -n, -tooshort, -geometry) %>%  as.data.frame()
+saveRDS(ssl_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.rds")
+write.csv(ssl_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.csv")
+
+# Make it spatial again
+ssl <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.shp")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
+
 
 ```{r testing contamination, eval=FALSE} 
 
