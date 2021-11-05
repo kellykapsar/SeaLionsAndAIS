@@ -55,8 +55,8 @@ rsf_array <- function(data, dims){
   x[, , 8] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 14])[, 1]
   x[, , 9] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 15])[, 1]
   x[, , 10] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 16])[, 1]
-  x[, , 11] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 17])[, 1]
-  x[, , 12] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 18])[, 1]
+  # x[, , 11] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 17])[, 1]
+  # x[, , 12] <- scale(rs_data[c(ind1, ind2, ind3, ind4, ind5, ind6), 18])[, 1]
   return(x)
 }
 
@@ -69,7 +69,7 @@ datestr <- format(Sys.time(), "%Y-%m-%d")
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
 workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
 datadir <- paste(homedir, "Data_Processed/", sep = "")
-resultdir <- paste("Results/SSL_RSF_IndlAllCombos_",
+resultdir <- paste("Results/SSL_IndlAllCombos_",
                    datestr, "/", sep = "")
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
@@ -87,84 +87,90 @@ setwd(workdir)
 print("Time begin"); print(start); cat("\n"); 
 
 # resource selection data path
-rs.data.path <- paste(datadir, "/Telemetry/UsedAndAvail_WeeklyKDE_20211029.rds", sep = "")
+rs.data.path <- paste(datadir, "/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds", sep = "")
 # read in resource selection data and sort with used point at top of list
-rs_data <- readRDS(rs.data.path)
+rs_data <- readRDS(rs.data.path) %>% group_by(weeklyhr_id) %>% mutate(weeklyhr_id = cur_group_id())
+
+
 
 # number of coefficients
-K <- 12 
+K <- 10
 # number of choices in each set
 C <- 6 
-# number of individuals
+# number of individuals 
 nInd <- 11
-
 
 ################################################################################
 # SECTION 2: FIT MODEL
 ################################################################################
+
+# model compiled on intel14 node
+modpath <- paste(resultdir, "model.rda", sep = "")
+mod <- readRDS(modpath)
+
 #  For execution on local, multicore CPU with excess RAM
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-# model compiled on intel14 node, saved in scratch
-comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
-
-# read in compiled model object
-mod <- readRDS(comp.modpath)
-
 # Start cluster
-cl <- 2
-clus <- makeCluster(cl)
-registerDoParallel(clus)
+# cl <- 11
+# clus <- makeCluster(cl)
+# registerDoParallel(clus)
 
-# Only doing 8 models per elk
-fitlst <- foreach(j = 1:nInd,.packages = c("rstan")) %dopar% {
-  # subset data array for jth model
-  rs_data_subset <- rs_data[rs_data$ind_id == j, ]
-  #extract id's for each choice set
-  cs <- unique(rs_data_subset[, 'choice_id']) 
-  # number of choice sets
-  N <- length(cs$choice_id) 
-  # create design array
-  x <- rsf_array(rs_data_subset, c(N, C, K))
-  # remove rs_data
-  rm(rs_data_subset)
+# Create grid with all TRUE/FALSE covariate combinations
+v1 <- rep(TRUE, K)
+v1 <- lapply(v1, append, FALSE)
+master <- expand.grid(v1)
+# Re-order master based on number of variables
+master <- master[order(rowSums(master), decreasing = TRUE),]
+# loop through the models and fit each one
+#   (preliminary analysis suggested that models with fewer variables
+#    performed worse according to WAIC, so only fitting first 512)
 
+# TEST RUN ON ONE INDIVIDUAL
+ind <- 1
+rs_data_subset <- rs_data[rs_data$ind_id == ind,]
+N <- length(unique(rs_data_subset$choice_id))
+x <- rsf_array(rs_data_subset, c(N, C, K))
+
+for(i in 1:5){
+  print(i)
+  keep.vars <- unlist(master[i,])
+  x.temp <- x[,,keep.vars]
+  K <- dim(x.temp)[3]
   # must enter data into a list
   data <- list(
-    C = C, K = K, N = N,
-    x = x, y = rep(1, N),
-    obs=c(1,0,0,0,0,0),
-    pos = diag(1, 6)
+    C = C, K = K, N = N, 
+    x = x.temp,
+    y = rep(1, N)
   )
   
+  # initial values are best supplied as a function
   # initial values are best supplied as a function
   inits <- function(){
     list(
       beta = runif(K, -10, 10)
     )
   }
-  # a character vector of parameters to monitor
-  params <- c('beta', 'log_lik', 'chis_obs', 'chis_sim')
   
-  fit <- sampling(mod, data = data, pars = params, init = inits,
-                  chains = 4, iter = 1000, warmup = 200, thin = 1)
+  # a character vector of parameters to monitor
+  #   monitor log_lik only to save space and time
+  #   all that is needed to calculate WAIC
+  params <- c('log_lik')
+  # sample from the model object
+  fit1 <- sampling(mod, data = data, pars = params, init = inits,
+                   chains = 4, iter = 1000, warmup = 200, thin = 1)
+  fit <- list(fit1, keep.vars)
+  # save model fit
+  filename <- paste('SSL_IndlAllCombos_', ind, "_", i, '_results_', datestr,
+                    '.rda', sep = '')
+  filepath <- paste(resultdir, filename, sep = '')
+  save(fit, file = filepath)
 }
-stopCluster(clus)
 
-# save model fit
-fitpath <- paste(workdir, resultdir, "SSL_IndlAllCombosRSF_Results", datestr,
-                 ".rda", sep = "")
-save(fitlst, file = fitpath)
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 # print finish time
 end <- Sys.time()
 print("Time finished"); print(end); cat("\n"); 
 end - start; cat("\n"); 
-
-# Close sink
-# sink()
-
-browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
-
-

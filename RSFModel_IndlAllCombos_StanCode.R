@@ -15,7 +15,7 @@ library(rstan)
 datestr <- format(Sys.time(), "%Y-%m-%d")
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
 workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
-resultdir <- paste("Results/SSL_RSF_IndlAllCombos_",
+resultdir <- paste("Results/SSL_IndlAllCombos_",
                    datestr, "/", sep = "")
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
@@ -28,75 +28,43 @@ ifelse(!dir.exists(file.path(workdir, resultdir)),
 # Set working directory to scratch 
 setwd(workdir)
 # Specify path to write model to
-modpath <- paste(resultdir, "model.stan", sep = "")
+modpath <- paste(workdir, resultdir, "model.stan", sep = "")
 
 # Write the stan model
 write(
   "data{
-  int C;  // the number of choices per set
-  int K;  // the number of slope parameters per individual
-  int N;  // the number of observations
-  int nWks;  // the number of weeks
-  int wk[N];  // indexes the week associated with each observation
-  matrix[C, K] x[N];  // variables in design matrix format
-  int y[N]; // index of which alternative was selected
-  vector[C] obs;
-  vector[C] pos[C];
-
+    int C;  // the number of choices per set
+    int K;  // the number of slope parameters per individual
+    int N;  // the number of observations
+    matrix[C, K] x[N];  // variables in design matrix format
+    int y[N]; // index of which alternative was selected
   }
   
   parameters{
-  vector[K] beta[nWks];  // slope parameters for each week
-  vector[K] mu;  // mean for each slope parameter
-  vector<lower = 0>[K] stdev;  // standard deviation of each slope parameter
+    vector[K] beta;  // rsf coefficients
   }
   
   model{
-  // vector[C] psi[N];
+    
+    for(l in 1:K){
+      beta[l] ~ normal(0, 10);  // prior distribution for slope parameter mean
+    }
   
-  //for(l in 1:K){           // Attempting to vectorize, removing loop
-  mu ~ normal(0, 1);  // prior distribution for slope parameter mean
-  stdev ~ normal(0, 1); // prior distribution for slope parameter sd
-  //}
-  
-  for(j in 1:nWks){
-  //for (k in 1:K){    
-  beta[j] ~ normal(mu, stdev);
-  }
-  // } 
-  
-  for(i in 1:N){
-  y ~ categorical_logit(x[i] * beta[wk[i]]);
-  }
+    for(i in 1:N){
+      y[i] ~ categorical_logit(softmax(x[i] * beta));
+    }
   }
   
   generated quantities{
-  simplex[C] expected[N]; //probabilities of use from dc model
-  vector[N] chis_obs_i; //chi-square value for each choice based on observations
-  vector[N] chis_sim_i; // chi-square value from simulated data
-  real chis_obs; //sum of chi-square values
-  real chis_sim;
-  vector[C] rch[N]; //simulated random choice of used alternative
-  int rcat[N];
-
+    vector[N] log_lik; // log likelihood
   
-  for(a in 1:N){
-    expected[a] = softmax(x[a] * beta[wk[a]]);
+    for(a in 1:N){
+      log_lik[a] = categorical_logit_lpmf(y[a]| x[a] * beta);
+    }
 
-    rcat[a] = categorical_rng(expected[a]);
-    rch[a] = pos[rcat[a]]; 
-    chis_obs_i[a] = sum(((obs - expected[a]) .* (obs - expected[a])) ./
-                        expected[a]);
-    chis_sim_i[a] = sum(((rch[a] - expected[a]) .* (rch[a] - expected[a])) ./
-                        expected[a]);
   }
-  chis_obs = sum(chis_obs_i);
-  chis_sim = sum(chis_sim_i);
-  
-  }
-
 "
-, file = modpath)
+  , file = modpath)
 
 # Compile the model
 model <- stan_model(modpath)
@@ -104,5 +72,7 @@ model <- stan_model(modpath)
 # Save the compiled model object
 comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
 saveRDS(model, file = comp.modpath)
+
+
 
 
