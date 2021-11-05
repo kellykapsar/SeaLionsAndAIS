@@ -12,8 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 Import libraries. 
 
 ```{r message=FALSE, warning=FALSE}
-library(tidyr)
-library(dplyr)
+library(tidyverse)
 library(sf)
 library(raster)
 library(ggplot2)
@@ -61,14 +60,11 @@ studylatlon <- study %>% st_transform(4269) %>% st_bbox()
 Pull in SSL data. 
 
 ```{r}
-ssl_orig <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyMCP_20211014.rds")  %>% 
-                    st_drop_geometry() %>% 
-                    group_by(deploy_id, date) %>% 
-                    mutate(choice_id = cur_group_id()) %>% 
-                    ungroup()
 
-# Collect only complete cases 
-ssl <- ssl_orig %>% filter(complete.cases(.))
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211014.rds")
+
+# Standardize covariate values by subtracting from mean and dividing by standard deviation
+ssl <- ssl %>% mutate_at(covar_names, ~(scale(.) %>% as.vector))
 
 ```
 
@@ -77,7 +73,6 @@ ssl <- ssl_orig %>% filter(complete.cases(.))
 
 summary(ssl); cat("\n")
 
-library(tidyverse)
 # Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
 
 # Violin plots of all covars: used vs. available
@@ -105,21 +100,5 @@ ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, ssh, eke, wind, f
 # VIOLIN PLOTS INSTEAD
 ```
 
-```{r centering variables}
 
-ssl$Bathymetry.ctd <- ssl$Bathymetry - mean(ssl$Bathymetry)
-ssl$DistLand.ctd <- ssl$DistLand - mean(ssl$DistLand)
-ssl$Dist500m.ctd <- ssl$Dist500m - mean(ssl$Dist500m)
-ssl$slope.ctd <- ssl$slope - mean(ssl$slope)
-ssl$ssh.ctd <- ssl$ssh - mean(ssl$ssh)
-ssl$eke.ctd <- ssl$eke - mean(ssl$eke)
-ssl$wind.ctd <- ssl$wind - mean(ssl$wind)
-ssl$fish.ctd <- ssl$fish - mean(ssl$fish)
-ssl$ship.ctd <- ssl$ship - mean(ssl$ship)
-ssl$sst.ctd <- ssl$sst - mean(ssl$sst)
-
-
-
-
-```
 
