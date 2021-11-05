@@ -18,7 +18,6 @@ library(amt)
 
 ```
 
-
 ```{r read in data}
 
 # Set seed
@@ -58,8 +57,8 @@ eke1 <- readRDS("../Data_Processed/eke_weekly_20181101-20200531.rds")
 eke2 <- readRDS("../Data_Processed/eke_weekly_20200601-20200731.rds")
 ssh1 <- readRDS("../Data_Processed/ssh_weekly_20181101-20200531.rds")
 ssh2 <- readRDS("../Data_Processed/ssh_weekly_20200601-20200731.rds")
-sst <- readRDS("../Data_Processed/sst_weekly.rds")
-wind <- readRDS("../Data_Processed/wind_weekly.rds")
+load("../Data_Processed/sst_weekly.rda")
+load("../Data_Processed/wind_weekly.rda")
 
 # Create a list of all covariate files  and check resolution 
 raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
@@ -433,7 +432,7 @@ avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 1
                            select(-case_)
 
 # Save output polygons 
-st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211029.shp")
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211104.shp")
 
 
 ssl_new <- ssl %>% 
@@ -534,6 +533,8 @@ newdata$ais_bounds <- st_intersects(newdata, aisbound_sf, sparse=FALSE)
 
 ssl4 <- newdata
 
+save(ssl4, file="../Data_Processed/Telemetry/TEMP.rda")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 ```
 
 ```{r final cleaning and save}
@@ -548,49 +549,66 @@ ssl_orig <- ssl4 %>% mutate(used = as.factor(used),
                            logship = log(ship+1)) %>% 
                     st_drop_geometry()
 
-# ID choice sets for discrete choice model 
-# NOTE: I'M PRETTY SURE THIS IS AN INCORRECT WAY TO PARAMETERIZE THIS MODEL, BUT I'M DOING IT JUST TO SEE IF I CAN GET THE 
-# EXAMPLE STAN CODE RUNNING BECAUSE THAT'S HOW IT'S ALREADY CODED... 
-temp1 <- ssl_orig %>% dplyr::filter(used == 0) %>% group_by(weeklyhr_id) %>% mutate(choice_id = rep(1:(length(year)/5), each=5))
-temp2 <- ssl_orig %>% dplyr::filter(used == 1) %>% group_by(weeklyhr_id) %>% mutate(choice_id = 1:length(year))
-
-ssl <- rbind(temp1, temp2)
-
-# Reorder columns to a more logical order and remove any rows with NA values for covariates
-# Create a list of covariate names (NEW)
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
-
-colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names))
-
-ssl <- ssl[,colorder] %>% na.omit() %>% as.data.frame()
-
-# Remove choice_ids with insufficient sample size due to NA values 
-tooshort <- ssl %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
-ssl <- left_join(ssl, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id")) 
-ssl <- ssl[which(is.na(ssl$tooshort)),]
-
-# Recalculate choice sets now that short ones have been removed
-temp1 <- ssl %>% dplyr::filter(used == 0) %>% group_by(weeklyhr_id) %>% mutate(choice_id = rep(1:(length(year)/5), each=5))
-temp2 <- ssl %>% dplyr::filter(used == 1) %>% group_by(weeklyhr_id) %>% mutate(choice_id = 1:length(used))
-
-ssl <- rbind(temp1, temp2)
-
-
-ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
-
 # Create an individual id
 ssl <- ssl %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
 
+# Reorder columns to a more logical order 
+covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+
+colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
+
+ssl <- ssl[,colorder] %>% as.data.frame()
+
+# Order data appropriately 
+ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
+
+# Recalculate choice sets now that short ones have been removed
+ssl$choice_id <- rep(1:(length(ssl$choice_id)/6), each=6)
+
+```
+
+```{r save output}
+
+
+############################################################
+############## SAVE OUTPUT WITH ALL VARIABLES ############## 
+############################################################
+
+# NOTE: I'M KEEPING INCOMPLETE CASES IN THE DATA SET SINCE IT WON'T BE USED FOR ANALYSIS
+# THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
+
 # Save output as non-spatial and without coordinates
-ssl_nocoords <- ssl %>% select(-easting, -northing, -n, -tooshort, -geometry) %>%  as.data.frame()
-saveRDS(ssl_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.rds")
-write.csv(ssl_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.csv")
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.csv")
 
 # Make it spatial again
-ssl <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211029.shp")
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.shp")
+
+########################################################### 
+############## SAVE OUTPUT WITHOUT SSH & EKE ############## 
+###########################################################
+
+# Remove coarse scale abiotic variables and select only complete cases 
+ssl_narrow <- ssl %>% select(-ssh, -eke) %>% na.omit() %>% as.data.frame()
+
+# Remove choice_ids with insufficient sample size due to NA values 
+tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
+ssl_narrow <- left_join(ssl_narrow, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id"))
+ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
+
+# Save output as non-spatial and without coordinates
+ssl_narrow_nocoords <- ssl_narrow %>% select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.csv")
+
+# Make it spatial again
+ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.shp")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
