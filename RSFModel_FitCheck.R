@@ -44,14 +44,17 @@ setwd(step6.resultdir)
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
-obs.disc <- rstan::extract(fitlst[[1]], 'chis_obs', F)[, , 1]
+for(i in 1:11){
+obs.disc <- rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]
 # extract simulated discrepancies
-sim.disc <- rstan::extract(fitlst[[1]], 'chis_sim', F)[, , 1]
+sim.disc <- rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1]
 # number of post-warmup draws
 pdraw <- dim(obs.disc)[1] * dim(obs.disc)[2]
 # Calculate Bayesian P-value
-pval <- sum(rstan::extract(fitlst[[1]], 'chis_sim', F)[, , 1] >
-            rstan::extract(fitlst[[1]], 'chis_obs', F)[, , 1]) / pdraw
+pval <- sum(rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1] >
+            rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]) / pdraw
+print(pval)
+}
 
 # initiate figure
 # figure 1 name
