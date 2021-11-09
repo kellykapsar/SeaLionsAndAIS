@@ -8,26 +8,105 @@
 # 
 
 
-
 library(moveVis)
 library(move)
+library(sf)
+library(dplyr)
+library(RColorBrewer)
+library(RStoolbox)
 
-data("move_data", package = "moveVis") # move class object
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj_latlon <- "+proj=longlat +datum=WGS84 +no_defs"
+prj_utm <- "+proj=utm +zone=5 +datum=WGS84 +units=m +no_defs"
+
+ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds") %>% 
+          as.data.frame() %>% 
+          dplyr::select(deploy_id, date, lat, lon, speed_kmhr) %>% 
+          mutate(deploy_id=as.factor(deploy_id))
+ssl <- ssl[-which(is.nan(ssl$speed_kmhr)),]
+
+
+move_kod <- df2move(ssl[which(grepl("KOD", ssl$deploy_id) == TRUE),], 
+                    proj= prj_latlon, x="lon", y="lat", time = "date", track_id="deploy_id")
+move_pws <- df2move(ssl[which(grepl("PWS", ssl$deploy_id) == TRUE),], 
+                    proj= prj_latlon, x="lon", y="lat", time = "date", track_id="deploy_id") 
+
+# data("move_data", package = "moveVis") # move class object
 # if your tracks are present as data.frames, see df2move() for conversion
 
-# align move_data to a uniform time scale
-m <- align_move(move_data, res = 4, unit = "mins")
+# lags <- timeLag(move_kod, unit = "mins")
+# lapply(lags, mean)
 
+# lags <- timeLag(move_pws, unit = "mins")
+# lapply(lags, mean)
+
+# Create custom basemap based on fishing data 
+fish <- readRDS("../Data_Processed/AIS_Fishing.rds") %>% raster::projectRaster(crs=prj_latlon)
+fish[fish < 0 ] <- 0
+
+# Calculated weeks manually because it's really difficult to convert "2018-W44" to a date format
+fish_times <- seq(from = ISOdate(2018, 11, 01), to = ISOdate(2020, 07, 31), by="week")
+
+##################
+### KODIAK GIF ###
+##################
+
+# align move_data to a uniform time scale
+m_kod <- align_move(move_kod, res = 12, unit = "hours")
+
+# Get colors for individuals
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 # create spatial frames with a OpenStreetMap watercolour map
-frames <- frames_spatial(m, path_colours = c("red", "green", "blue"),
+frames_kod <- frames_spatial(m_kod, path_colours = getPalette(11)[5:11],
+                         # r_list = fish_kod[[1]], r_times=fish_kod[[2]], r_type="gradient") %>%
                          map_service = "osm", map_type = "watercolor", alpha = 0.5) %>%
-  add_labels(x = "Longitude", y = "Latitude") %>% # add some customizations, such as axis labels
+  add_labels(x = "", y = "", title = "Steller Sea Lion Movements, Oct. 2019 - Jul. 2020") %>%  
   add_northarrow() %>%
   add_scalebar() %>%
-  add_timestamps(m, type = "label") %>%
+  add_timestamps(m_kod, type = "label") %>%
   add_progress()
 
-frames[[100]] # preview one of the frames, e.g. the 100th frame
+# Add raster layer for marine vessel trafficon top
+ts_kod <- sort(unique(timestamps(m_kod)))
+r_pos_kod <- sapply(ts_kod, function(x) which.min(abs(difftime(x, fish_times))))
+fish_kod <- lapply(r_pos_kod, function(i) fish[[i]])
+
+
+frames_kod_fish <- add_gg(frames_kod, gg = expr(RStoolbox::ggR(data, alpha = 0.5, ggLayer = T)), 
+                          stretch="log", data = fish_kod)
 
 # animate frames
-animate_frames(frames, out_file = "moveVis.gif")
+animate_frames(frames_kod_fish, fps = 10, out_file = paste0("../Figures/moveVis_KOD_fish.gif"))
+animate_frames(frames_kod, fps = 10, out_file = paste0("../Figures/moveVis_KOD_10fps.gif"))
+
+###############
+### PWS GIF ###
+###############
+
+# align move_data to a uniform time scale
+m_pws <- align_move(move_pws, res = 12, unit = "hours")
+
+# Get colors for individuals
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+# create spatial frames with a OpenStreetMap watercolour map
+frames_pws <- frames_spatial(m_pws, path_colours = getPalette(11)[1:4],
+                         map_service = "osm", map_type = "watercolor", alpha = 0.5) %>%
+                         # map_service = "osm", map_type = "watercolor", alpha = 0.5) %>%
+  add_labels(x = "", y = "", title = "Steller Sea Lion Movements, Nov. 2018 - Jul. 2019") %>%  
+  add_northarrow() %>%
+  add_scalebar() %>%
+  add_timestamps(m_pws, type = "label") %>%
+  add_progress()
+
+# Add raster layer for marine vessel trafficon top
+# Code from: https://gist.github.com/16EAGLE/4bfb0ca589204c53041244aa705b456b
+ts_pws <- sort(unique(timestamps(m_pws)))
+r_pos_pws <- sapply(ts_pws, function(x) which.min(abs(difftime(x, fish_times))))
+fish_pws <- lapply(r_pos_pws, function(i) fish[[i]])
+
+frames_pws_fish <- add_gg(frames_pws, gg = expr(RStoolbox::ggR(data, alpha = 0.5, ggLayer = T)), 
+                     stretch="log", data = fish_pws)
+
+# animate frames
+animate_frames(frames_pws_fish, fps = 10, out_file = paste0("../Figures/moveVis_PWS_fish.gif"))
+animate_frames(frames_pws, fps = 10, out_file = paste0("../Figures/moveVis_PWS_10fps.gif"))
