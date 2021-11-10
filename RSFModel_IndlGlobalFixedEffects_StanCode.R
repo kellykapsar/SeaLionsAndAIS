@@ -55,7 +55,7 @@ write(
     }
   
     for(i in 1:N){
-      y[i] ~ categorical_logit(softmax(x[i] * beta));
+      y[i] ~ categorical_logit(x[i] * beta);
     }
   }
   
@@ -70,9 +70,9 @@ write(
     int rcat[N];
   
     for(a in 1:N){
-      expected[a] = softmax(x[a] * beta);
+      expected[a] = softmax(x[a] * beta); //??Create prob. of use of each used loc 
   
-      rcat[a] = categorical_rng(expected[a]);
+      rcat[a] = categorical_rng(expected[a]); //??simulate 0 or 1 based on covar val*beta at each point
       rch[a] = pos[rcat[a]];
   
       chis_obs_i[a] = sum(((obs - expected[a]) .* (obs - expected[a])) ./
