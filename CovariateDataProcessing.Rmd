@@ -88,7 +88,7 @@ ggplot() +
 
 ## Landmask 
 
-This landmask is at the same scale as the bathymetry data. Note: Zero values were included as water and not land.
+This landmask is at the same scale as the bathymetry data. Note: Zero values were included as land and not water.
 
 ```{r GEBCO landmask}
 landmask <- bathy
@@ -104,7 +104,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif", overwrite=TRUE)
+# writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif", overwrite=TRUE)
 ```
 
 ## Slope
@@ -194,11 +194,12 @@ bathy2 <- bathy
 
 # ID cells on land, shallower than isobath, and deeper than isobath
 land <- bathy2 > 0
-shallow <- bathy2 > -400
-deep <- bathy2 < -500 
+shallow <- bathy2 > -500
+deep <- bathy2 < -510 
 
 # Land = 1, isobath = 2
 bathy2[!shallow & !deep] <- 2
+bathy2[raster::coordinates(bathy2)[,2] > 6650000] <- 0 # This removes the deeper parts of PWS 
 bathy2[land] <- 1
 
 # Calculate distance to nearest cell with a value of 2(going around any cell with a value of 1)
@@ -209,7 +210,7 @@ dist500m <- gridDistance(bathy2, origin = 2,
 dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Save results
-# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
+writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 
 # Plot results
