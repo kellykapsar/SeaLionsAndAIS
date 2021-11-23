@@ -1,14 +1,9 @@
 ################################################################################
-# TITLE: Individual Missouri elk resource selection function analysis: Step 5 -
-#   Code for fitting individual models, RSF2
-# PURPOSE: This code is for fitting the random slopes individual resource
-#   selection functions (model RSF2) to the Missouri elk relocation data, i.e. a 
-#   model without indicator variable selection. We use Stan 
-#   because it is much more efficient than Gibbs sampling for this scenario. 
-#   This script is meant to be run on my HPCC ICER account.
-# AUTHOR: Kyle Redilla, RECaP Lab
-# CREATED: 2017-01-09
-# LAST UPDATED ON 2017-01-15
+# TITLE: Steller Sea Lion Discrete Choice Resource Selection Function 
+# - Global fixed effects code 
+# AUTHOR: Kelly Kapsar, CSIS 
+# CREATED: 2021-11-15
+# LAST UPDATED ON 2021-11-15
 ################################################################################
 start <- Sys.time()
 # OPEN LIBRARIES 
@@ -112,7 +107,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 # model compiled on intel14 node, saved in scratch
-comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
+comp.modpath <- paste(workdir, "/Results/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
 
 # read in compiled model object
 mod <- readRDS(comp.modpath)
@@ -124,9 +119,9 @@ mod <- readRDS(comp.modpath)
 
 fitlst <- list()
 
-# Only doing 8 models per elk
+# One model for each of 11 SSLs
 # fitlst <- foreach(j = 1:nInd,.packages = c("rstan")) %dopar% {
-for(j in 1:nInd){
+for(j in 1:11){
   print(j)
   # subset data array for jth model
   rs_data_subset <- rs_data[rs_data$ind_id == j, ]
@@ -149,7 +144,7 @@ for(j in 1:nInd){
     )
   }
   # a character vector of parameters to monitor
-  params <- c('beta', 'log_lik', 'chis_obs', 'chis_sim')
+  params <- c('beta', 'chis_obs', 'chis_sim')
   
   fit <- sampling(mod, data = data, pars = params, init = inits,
                   chains =4, iter = 1000, warmup = 200, thin = 1)
@@ -157,7 +152,6 @@ for(j in 1:nInd){
   fitlst <- c(fitlst, fit)
   # remove rs_data
   rm(rs_data_subset)
-  rm(nWks)
 }
 # stopCluster(clus)
 
