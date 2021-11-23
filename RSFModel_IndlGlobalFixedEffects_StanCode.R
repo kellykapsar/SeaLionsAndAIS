@@ -1,12 +1,9 @@
 ################################################################################
-# TITLE: Individual Missouri elk resource selection function analysis: Step 5dev
-#   - Code for compiling the individual RSF2 Stan model on the HPCC
-# PURPOSE: This code is for compiling the Stan model on the HPCC using the dev-
-#   intel14 node, so that either intel14 or intel16 nodes can run the job
-#   ERS1_step5_code_2017-01-12.qsub
-# AUTHOR: Kyle Redilla, RECaP Lab
-# CREATED: 2017-1-9
-# LAST UPDATED ON 2017-1-15
+# TITLE: Steller Sea Lion Discrete Choice Resource Selection Function 
+# - Global fixed effects model code 
+# AUTHOR: Kelly Kapsar, CSIS 
+# CREATED: 2021-11-15
+# LAST UPDATED ON 2021-11-15
 ################################################################################
 # Open libraries
 library(rstan)
