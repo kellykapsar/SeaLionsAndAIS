@@ -13,18 +13,20 @@
 library(rstan)
 library(ggplot2)
 library(dplyr)
-library(MASS)
-library(reshape2)
-library(cluster)
-library(vegan)
-library(rgdal)
+# library(MASS)
+# library(reshape2)
+# library(cluster)
+# library(vegan)
+# library(rgdal)
 library(RColorBrewer)
-library(raster)
-library(viridis)
-library(rasterVis)
-library(qdap)
+# library(raster)
+# library(viridis)
+# library(rasterVis)
+# library(qdap)
 library(foreach)
-library(gridExtra)
+# library(gridExtra)
+library(fmsb)
+library(loo)
 ################################################################################
 # Start with clean environment
 rm(list = ls())
@@ -41,17 +43,45 @@ outdir <- resultdir
 # imagedir is outdir now
 imagedir <- outdir
 # individual model selection results path
-step5dir <- paste(resultdir, "SSL_RSF_IndlAllCombos_2021-11-01/", sep = '')
+step5dir <- paste(resultdir, "SSL_IndlAllCombos_2021-11-16/", sep = '')
+
 # scaled raster data directory
 # rasdatadir <- paste(datadir, "scaled_rasters/", sep = '')
 # erz layer directory
 # erzlayerdir <- paste(datadir, "created_layers/", sep = '')
 # Start timing the analysis.
 print(Timing <- data.frame(Start = Sys.time(), End = NA, Duration = NA))
+
+# Covariate names (in order)
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", 
+                 "logfish", "prox_fish_km", "prox_ship_km")
+covar_labels <- c("Bathymetry", "Distance to\nland", "Distance to\nshelf", 
+                  "Slope ", "SST", "Wind speed", "Shipping Intensity", "Fishing\nIntensity", 
+                  "Distance to\nfishing", "Distance to\nshipping")
+
+# Radar chart customization function 
+# From: https://www.datanovia.com/en/blog/beautiful-radar-chart-in-r-using-fmsb-and-ggplot-packages/
+create_beautiful_radarchart <- function(data, color = "#00AFBB", 
+                                        vlabels = colnames(data), vlcex = 1,
+                                        caxislabels = NULL, title = NULL, ...){
+  fmsb::radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "grey", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title, ...
+  )
+}
 ################################################################################
 # SECTION 1: COEFFICIENT ESITMATES CATERPILLAR PLOTS
 ################################################################################
-
+# Specify the number of individuals with data
+nInd <- 11
 
 
 ### Read in data
@@ -59,7 +89,7 @@ print(Timing <- data.frame(Start = Sys.time(), End = NA, Duration = NA))
 ## Data 
 # read in uncopmressed dataset for elk rs
 # resource selection data path
-all.rs.data.path <-  paste(datadir, "Telemetry/UsedAndAvail_WeeklyKDE_20211029.rds", sep = "")
+all.rs.data.path <-  paste(datadir, "Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds", sep = "")
 all_rs_data <- readRDS(all.rs.data.path)
 
 # Read in capture individual info
@@ -72,53 +102,60 @@ all_rs_data <- readRDS(all.rs.data.path)
 
 ## Global model results
 # Load individual model results
-indiv.stan.results.path <- paste(resultdir, 
-                                 "ERS1_step4_results_2017-02-02.rda", sep = "")
-load(indiv.stan.results.path)
+# indiv.stan.results.path <- paste(resultdir, 
+#                                  "SSL_IndlGlobalFixedEffects_2021-11-05/SSL_IndlGlobalRSF_Results2021-11-05.rda", sep = "")
+# load(indiv.stan.results.path)
 # load population model results
-pop.stan.results.path <- paste(resultdir, "ERS1_step2_results_2017-02-16.rda", 
-                               sep = "")
-load(pop.stan.results.path)
+# pop.stan.results.path <- paste(resultdir, "ERS1_step2_results_2017-02-16.rda", 
+#                                sep = "")
+# load(pop.stan.results.path)
 
 ## Model selection results
-require(rstan)
-require(foreach)
+setwd(step5dir)
+# Get list of all files in results directory
+files <- list.files()
+
 # loop through 
-var.sel <- foreach(i = 1:88) %do% {
-  # filepath
-  path <- paste(step5dir, 'job4_results_elk_', i, '.rdata', sep = '')
-  # load it
-  load(path)
+for(i in 1:nInd){
+  # load stan model fits
+  load(files[grepl(paste0("Ind", i, "_"), files)])
+  # Models 
+  mods <- read.csv(paste0(step5dir, "ModelVariableList_", i, ".csv")) %>% select(-X)
+  # Adjust column names 
+  colnames(mods) <- covar_names
+  
   # extract model data frame from first part of each list
-  mod.df.lst <- lapply(fitlst, '[[', 1)
-  # Remove timer element
-  mod.df.lst[length(mod.df.lst)] <- NULL
-  # number of models in model set (minus 1 for time calculation)
-  M <- length(mod.df.lst)
-  # unlist the model df list and populate matrix
-  mod.comp.mat <- matrix(unlist(mod.df.lst), 
-                         nrow = M, byrow = TRUE)
-  # keep only those for which dist grvael wasn't in
-  # mod.comp.mat <- mod.comp.mat[mod.comp.mat[,5] == "1",]
-  # remove that column
-  # mod.comp.mat <- mod.comp.mat[, -5]
-  # change to numeric
-  mod.comp.mat <- apply(mod.comp.mat, 2, as.numeric)
+  mod.loos <- lapply(fitlst, '[[', 2)
+  looranks <- as.data.frame(loo_compare(mod.loos)) %>% tibble::rownames_to_column()
+  looranks$modnum <- substr(looranks$rowname, 6,10)
+  
+  M <- length(mod.loos)
+
   # what is the 95% mark
   top95 <- M - floor(M*0.95)
   # order and keep
-  keep <- mod.comp.mat[order(mod.comp.mat[, 21]),]
-  keep <- keep[1:top95,]
-  # initialize predictor vector
-  top.vec <- vector(length = 10)
-  # turn all '1' to '0'
-  keep[keep == 1] = 0
-  # turn all 'X' to '1'
-  keep[is.na(keep)] = 1
-  # now get colsums from 1:11
-  # colsums is already ordered according to the variables used
-  colSums(keep[, 1:10])
+  keep <- looranks[1:top95,]
+  # Keep only the top 5% of models
+  topmods <- mods[keep$modnum,]
+  # Calculate percentage of top models containing each covariate
+  pctcovars <- data.frame(t(colSums(topmods)/top95))
+
+  pctcovars <- rbind(pctcovars, rep(0, 10))
+  pctcovars <- rbind(pctcovars, rep(1, 10))
+  rownames(pctcovars) <- c(i, "Min", "Max")
+  pctcovars <- pctcovars[c("Max", "Min", i),]
+  
+  filename <- paste0(step5dir, "RadarPlot_",i,".png")
+  png(filename = filename)
+  create_beautiful_radarchart(pctcovars, vlabels=covar_labels, caxislabels = c(0, 0.25, 0.50, 0.75, 1))
+  dev.off()
 }
+
+
+############################################################################
+
+
+
 
 top.mods <- foreach(i = 1:88) %do% {
   # filepath
