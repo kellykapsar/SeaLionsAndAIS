@@ -76,7 +76,7 @@ frames_kod_fish <- add_gg(frames_kod, gg = expr(RStoolbox::ggR(data, alpha = 0.5
                           stretch="log", data = fish_kod)
 
 # animate frames
-animate_frames(frames_kod_fish, fps = 10, out_file = paste0("../Figures/moveVis_KOD_fish.gif"))
+# animate_frames(frames_kod_fish, fps = 10, out_file = paste0("../Figures/moveVis_KOD_fish.gif"))
 animate_frames(frames_kod, fps = 10, out_file = paste0("../Figures/moveVis_KOD_10fps.gif"))
 
 ###############
@@ -108,5 +108,5 @@ frames_pws_fish <- add_gg(frames_pws, gg = expr(RStoolbox::ggR(data, alpha = 0.5
                      stretch="log", data = fish_pws)
 
 # animate frames
-animate_frames(frames_pws_fish, fps = 10, out_file = paste0("../Figures/moveVis_PWS_fish.gif"))
+# animate_frames(frames_pws_fish, fps = 10, out_file = paste0("../Figures/moveVis_PWS_fish.gif"))
 animate_frames(frames_pws, fps = 10, out_file = paste0("../Figures/moveVis_PWS_10fps.gif"))
