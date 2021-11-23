@@ -51,7 +51,7 @@ write(
     }
   
     for(i in 1:N){
-      y[i] ~ categorical_logit(softmax(x[i] * beta));
+      y[i] ~ categorical_logit(x[i] * beta);
     }
   }
   
