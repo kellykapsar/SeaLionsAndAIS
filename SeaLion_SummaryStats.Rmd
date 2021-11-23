@@ -22,6 +22,7 @@ library(leaflet)
 library(ggplot2)
 library(GGally)
 library(RColorBrewer)
+library(corrr)
 
 opar <- par()      # make a copy of current graphical parameters
 ```
@@ -65,7 +66,7 @@ Pull in SSL data.
 ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds") 
 
 covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
-covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Proximity to fishing (km)", "Proximity to shipping (km)")
+covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Distance to fishing (km)", "Distance to shipping (km)")
 
 # Get colors for individuals
 getPalette = colorRampPalette(brewer.pal(9, "Set1"))
@@ -96,10 +97,35 @@ summary(ssl); cat("\n")
 
 for(i in 1:11){
   print(i)
-  t <- ssl %>% dplyr::filter(used == 1, ind_id == i) %>% dplyr::select(all_of(covar_names)) %>% ggpairs()
-  ggsave(plot=t, filename =paste0("../Figures/PairCorrs_", i, ".jpeg"), 
+  t <- ssl %>% dplyr::filter(ind_id == i) %>% dplyr::select(all_of(covar_names)) %>% ggpairs()
+  dep_id <- unique(ssl$deploy_id[which(ssl$ind_id == i)])
+  ggsave(plot=t, filename =paste0("../Figures/PairCorrs_", dep_id, ".jpeg"), 
          width = 10, height=10, units="in", device = "jpeg")
 }
+
+
+# Create lookup table for matching matrix column number to covariate name 
+# ONLY FOR USE ON RSF_ARRAY, NOT RS_DATA....Otherwise column numbers will be messed up
+lookup <- 1:10
+names(lookup) <-covar_names
+
+getcovarcol <- function(colname, lookupvector){
+  colnum <- unname(lookupvector[colname])
+  return(colnum)
+}
+
+
+# Get a list of pairwise correlations >0.6 for each individual
+corrlist <- lapply(1:11, function(x) ssl %>% filter(ind_id == x) %>% 
+                          dplyr::select(all_of(covar_names)) %>% 
+                          corrr::correlate() %>% 
+                          corrr::shave() %>% 
+                          corrr::stretch() %>% 
+                          dplyr::filter(abs(r) > 0.6) %>% 
+                          mutate(x = getcovarcol(x, lookup), y = getcovarcol(y, lookup)))
+                          # Convert column names to matrix numbers
+
+lapply(1:11, function(x)write.csv(corrlist[[x]], paste0("../Data_Processed/Telemetry/Corrs_", x, ".csv")))
 
 # Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
 
@@ -153,7 +179,7 @@ lapply(1:10, function(i){
 
 
 # Correlations between covariates 
-ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, ssh, eke, wind, fish, ship, sst, prox_ships_km, prox_fish_km)%>% 
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, fish, ship, sst, prox_ships_km, prox_fish_km)%>% 
   ggcorr(label=T)
 
 ```
