@@ -67,8 +67,8 @@ workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaL
 # homedir <- "."
 # workdir <- "."
 datadir <- paste(workdir, "/Data_Processed/", sep = "")
-resultdir <- paste("/Results/SSL_DummyModel_",
-                   datestr, "/", sep = "")
+resultdir <- "/Results/SSL_DummyModel_2021-11-20"
+                   
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
        dir.create(file.path(workdir, resultdir)), FALSE)
@@ -131,7 +131,7 @@ test_data <- newchoice[,c("choice_id", "used", "V1", "V2", "V3")]
 
 
 # model compiled on intel14 node, saved in scratch
-comp.modpath <- paste(workdir, "/Results/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
+comp.modpath <- paste(workdir, resultdir, "/model.rda", sep = "")
 
 # read in compiled model object
 mod <- readRDS(comp.modpath)
@@ -163,7 +163,7 @@ fit <- sampling(mod, data = data, pars = params, init = inits,
 
 
 # save model fit
-fitpath <- paste(workdir, resultdir, "SSL_DummyModel_", datestr,
+fitpath <- paste(workdir, resultdir, "/SSL_DummyModel_", datestr,
                  ".rda", sep = "")
 save(fit, file = fitpath)
 
