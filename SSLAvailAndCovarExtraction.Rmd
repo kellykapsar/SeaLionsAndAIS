@@ -585,7 +585,7 @@ write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211
 ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.shp")
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.shp", overwrite=T)
 
 ########################################################### 
 ############## SAVE OUTPUT WITHOUT SSH & EKE ############## 

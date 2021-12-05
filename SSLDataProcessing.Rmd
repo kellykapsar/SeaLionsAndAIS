@@ -19,12 +19,13 @@ library(ggplot2)
 library(scales)
 library(ggmap)
 library(leaflet)
+library(RColorBrewer)
 
 ```
 
 Study area boundaries. 
 
-```{r study area warning=FALSE}
+```{r study area, warning=FALSE}
 # Projection information for WGS84/UTM Zone 5N (EPSG:32605)
 prj <- 32605
 
@@ -38,7 +39,7 @@ study <- coords %>%
          st_transform(prj)
 # st_write(study, "../Data_Raw/studyarea.shp")
 
-basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(prj) %>%  st_buffer(0)
+basemap <- read_sf("../Data_Raw/AK_CAN_RUS/AK_CAN_RUS.shp") %>% st_transform(prj) %>%  st_buffer(0)
 
 # Crop basemap to buffered extent of study area 
 study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
@@ -51,6 +52,18 @@ ggplot() +
 
 # Get latlong coordinates for study area for use in downloading other data sets
 studylatlon <- study %>% st_transform(4269) %>% st_bbox()
+
+```
+```{r plot labels and color palette}
+
+sealilabels<- data.frame(names = c("SSL2018774PWS", "SSL2018775PWS", "SSL2018776PWS", "SSL2018777PWS", 
+                                   "SSL2019781KOD", "SSL2019782KOD", "SSL2019783KOD", "SSL2019784KOD",
+                                   "SSL2019785KOD", "SSL2019786KOD", "SSL2019788KOD"), 
+                         labels=c("774PWS", "775PWS", "776PWS", "777PWS", 
+                                  "781KOD", "782KOD", "783KOD", "784KOD", 
+                                  "785KOD", "786KOD", "788KOD"))
+
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
 ```
 
@@ -189,22 +202,36 @@ sealis %>% st_drop_geometry() %>%
 
 # Map of study area 
 ggplot() +
-  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5, alpha = 0.8) +
   geom_sf(data=study, fill=NA, color="red")+
   # geom_path is much faster than geom_sf
-  geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id))
+  geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id)) +
+  scale_color_manual(values=getPalette(11), name = "Individual", labels = sealilabels$labels) +
+  xlab("") +
+  ylab("") +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20),
+        axis.text=element_text(size=15)) 
+ggsave("../Figures/PathMap.png", width = 10, height = 8, units = "in")
 
 # Tag duration timeline 
 timeline <- sealis %>% st_drop_geometry() %>% group_by(deploy_id) %>% summarize(starttag = as.Date(min(date)), endtag=as.Date(max(date)))
 
-ggplot(timeline, aes(x=starttag, y= deploy_id)) +
-  geom_linerange(aes(xmin = starttag, xmax = endtag),color = "black",size = 2) + 
+ggplot(timeline, aes(x=starttag, y= deploy_id, color = deploy_id)) +
+  geom_linerange(aes(xmin = starttag, xmax = endtag),size = 2, show.legend = FALSE) + 
+  scale_color_manual(values=getPalette(11)) +
   scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
-  theme(axis.text.x=element_text(angle=45, hjust=1))+
+  scale_y_discrete(labels=sealilabels$labels) +
   ylab("") +
-  xlab("") 
+  xlab("") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+      axis.text=element_text(size=15))
 
-
+ggsave("../Figures/TelemetryTimeline.png", width = 10, height = 6, units = "in")
 ``` 
 
 
