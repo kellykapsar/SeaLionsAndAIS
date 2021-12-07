@@ -238,11 +238,11 @@ pctcovars <- rbind(pctcovars, rep(1, 10))
 rownames(pctcovars) <- c(i, "Min", "Max")
 pctcovars <- pctcovars[c("Max", "Min", i),]
 filename <- paste0(comboresults, "RadarPlot_1BIG.png")
-png(filename = filename, width = 15, height=15, units="in", res=200)
+# png(filename = filename, width = 15, height=15, units="in", res=200)
 create_beautiful_radarchart(pctcovars, vlabels=covar_labels, 
                             caxislabels = c(0, 0.25, 0.50, 0.75, 1), 
                             title=M_labels[[1]], color=getPalette(11)[1])
-dev.off()
+# dev.off()
 
 
 pctcovarsall <- data.frame()
@@ -276,12 +276,12 @@ for(i in 1:nInd){
   rownames(pctcovars) <- c(i, "Min", "Max")
   pctcovars <- pctcovars[c("Max", "Min", i),]
   
-  filename <- paste0(comboresults, "RadarPlot_",i,".png")
-  png(filename = filename)
-  create_beautiful_radarchart(pctcovars, vlabels="", 
-                              caxislabels = c(0, 0.25, 0.50, 0.75, 1), 
+  # filename <- paste0(comboresults, "RadarPlot_",i,".png")
+  # png(filename = filename)
+  create_beautiful_radarchart(pctcovars, vlabels="",
+                              caxislabels = c(0, 0.25, 0.50, 0.75, 1),
                               title=M_labels[[i]], color=getPalette(11)[i])
-  dev.off()
+  # dev.off()
 }
 
 pctcovarsall <- round(pctcovarsall, 2)
@@ -296,66 +296,67 @@ comp.modpath <- paste(resultdir, "SSL_IndlGlobalFixedEffects_2021-11-09/model.rd
 # read in compiled model object
 mod <- readRDS(comp.modpath)
 
-topfitlst <- list()
-
-for(i in 1:nInd){
-  
-  print(paste0("Processing individual: ", i))
-  
-  # Import variable combinations for this individual 
-  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% select(-X)
-  
-  # Adjust column names 
-  colnames(mods) <- covar_names
-  
-  # Identify covariates included in the top model 
-  betatruefalse <- mods[topmodnums[[i]],]
-  betanums[[i]] <- which(betatruefalse[1,] == TRUE)
-  
-  # Calculate total number of covars in top model
-  K <- sum(betatruefalse[1,])
-  
-  # Specify number of choices per choice set
-  C <- 6 
-  
-  # Isolate out individual data 
-  rs_data_subset <- rs_data[rs_data$ind_id == i, ]
-  
-  # Specify number of choice sets for this individual
-  N <- length(unique(rs_data_subset$choice_id))
-  
-  # create design array with all covariates 
-  x <- rsf_array(rs_data, c(N, C, 10)) 
-  
-  # Remove unused covariates from data array
-  x.temp <- x[,,betanums[[i]]]
-
-  # must enter data into a list
-  data <- list(
-    C = C, K = K, N = N, 
-    x = x.temp,
-    y = rep(1, N),
-    obs=c(1,0,0,0,0,0),
-    pos = diag(1, 6)
-  )
-  
-  # initial values are best supplied as a function
-  inits <- function(){
-    list(
-      beta = runif(K, -10, 10)
-    )
-  }
-  # a character vector of parameters to monitor
-  params <- c('beta', 'chis_obs', 'chis_sim')
-  
-  fit <- sampling(mod, data = data, pars = params, init = inits,
-                  chains =4, iter = 1000, warmup = 200, thin = 1)
-  
-  topfitlst <- c(topfitlst, fit)
-  
-}
-
-saveRDS(topfitlst, paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds"))
+#### IMPORTED RESULTS OF THIS CODE BELOW
+# topfitlst <- list()
+# 
+# for(i in 1:nInd){
+#   
+#   print(paste0("Processing individual: ", i))
+#   
+#   # Import variable combinations for this individual 
+#   mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% select(-X)
+#   
+#   # Adjust column names 
+#   colnames(mods) <- covar_names
+#   
+#   # Identify covariates included in the top model 
+#   betatruefalse <- mods[topmodnums[[i]],]
+#   betanums[[i]] <- which(betatruefalse[1,] == TRUE)
+#   
+#   # Calculate total number of covars in top model
+#   K <- sum(betatruefalse[1,])
+#   
+#   # Specify number of choices per choice set
+#   C <- 6 
+#   
+#   # Isolate out individual data 
+#   rs_data_subset <- rs_data[rs_data$ind_id == i, ]
+#   
+#   # Specify number of choice sets for this individual
+#   N <- length(unique(rs_data_subset$choice_id))
+#   
+#   # create design array with all covariates 
+#   x <- rsf_array(rs_data, c(N, C, 10)) 
+#   
+#   # Remove unused covariates from data array
+#   x.temp <- x[,,betanums[[i]]]
+# 
+#   # must enter data into a list
+#   data <- list(
+#     C = C, K = K, N = N, 
+#     x = x.temp,
+#     y = rep(1, N),
+#     obs=c(1,0,0,0,0,0),
+#     pos = diag(1, 6)
+#   )
+#   
+#   # initial values are best supplied as a function
+#   inits <- function(){
+#     list(
+#       beta = runif(K, -10, 10)
+#     )
+#   }
+#   # a character vector of parameters to monitor
+#   params <- c('beta', 'chis_obs', 'chis_sim')
+#   
+#   fit <- sampling(mod, data = data, pars = params, init = inits,
+#                   chains =4, iter = 1000, warmup = 200, thin = 1)
+#   
+#   topfitlst <- c(topfitlst, fit)
+#   
+# }
+# 
+# saveRDS(topfitlst, paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds"))
 topfitlst <- readRDS(paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds"))
 
 # Figure 1: plot results of Posterior 
@@ -422,16 +423,16 @@ for(i in 1:11){
     theme(axis.text.x = element_text(size=25), 
           axis.text.y = element_text(size=25)) +
     ylab("")
-  ggsave(paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
+  # ggsave(paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
 }
 
 # Other miscellaneous plots 
-fitlstmcmc <- lapply(topfitlst, As.mcmc.list, pars=c("beta"))
-
-mcmc_areas(fitlstmcmc[[1]], prob=0.95)
-mcmc_scatter(fitlstmcmc[[1]], pars=c("beta[2]", "beta[8]"))
-
-rethinking::precis(topfitlst[[1]])
+# fitlstmcmc <- lapply(topfitlst, As.mcmc.list, pars=c("beta"))
+# 
+# mcmc_areas(fitlstmcmc[[1]], prob=0.95)
+# mcmc_scatter(fitlstmcmc[[1]], pars=c("beta[2]", "beta[8]"))
+# 
+# rethinking::precis(topfitlst[[1]])
 
 ####################
 # Significance counts for variables in best fitting models
@@ -468,9 +469,9 @@ p1 <- ggplot(test, aes(fill=factor(Significance, levels=c("sigpos", "signonsig",
   xlab("") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 50, hjust=1), text = element_text(size = 20))
-
-ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/SignificanceCountsBarPlot.png"), 
-       width=8, height=9, units="in")
+p1
+# ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/SignificanceCountsBarPlot.png"), 
+       # width=8, height=9, units="in")
 
 
 #################################################################
@@ -480,15 +481,22 @@ ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/Signifi
 
 ### figure 2: Population & individual global model point estimates 
 
+topmodbetas$Name <- as.factor(topmodbetas$Name)
+topmodbetas$Label <- as.factor(topmodbetas$Label)
+topmodbetas$ind_id <- as.factor(topmodbetas$ind_id)
+
+topmodbetas <- topmodbetas %>% rename(CI_L = '2.5%', CI_H = '97.5%')
+
 ## Create figure 2 with credible intervals on individual estimates
 # figure 2 filepath
 fig1path <- paste(imagedir, "ERS1_step7_figure1_",
                   datestr, ".jpg", sep = "")
+
 # initialize ggplot
-pop.p <- ggplot(data = mean.df_long, aes(x = variable, y = mean)) +
+pop.p <- ggplot(data = topmodbetas, aes(x = Name, y = mean)) +
   # add horizontal line for zero
   geom_hline(yintercept = 0, color = "navy", lwd = 1.5) + 
-  geom_pointrange(aes(ymin = CI_L, ymax = CI_H, x = variable, y = mean),
+  geom_pointrange(aes(ymin = CI_L, ymax = CI_H, x = Name, y = mean),
                   size = 0.2, position = position_jitter(0.3),
                   alpha = 0.3, color = "darkcyan") + 
   theme(plot.background = element_rect(fill = "white"),
@@ -499,6 +507,8 @@ pop.p <- ggplot(data = mean.df_long, aes(x = variable, y = mean)) +
         axis.title = element_text(color = "black", size = 16),
         axis.text.x = element_text(angle = 45, hjust = 1),
         axis.line = element_line(color = "black")) + 
+  
+  
   ylab('Mean coefficient estimate') + 
   xlab('Resource covariate') + 
   scale_y_continuous(limits = c(-6, 6)) + 
