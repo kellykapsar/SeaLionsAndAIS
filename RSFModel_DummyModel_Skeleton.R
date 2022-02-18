@@ -60,24 +60,6 @@ rsf_array <- function(data, dims){
 ################################################################################
 # SECTION 1: PREPARE DATA
 ################################################################################
-# Specify directories
-datestr <- format(Sys.time(), "%Y-%m-%d")
-homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS" # kk - Don't know what the difference between workdir and homedir is
-workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS"
-# homedir <- "."
-# workdir <- "."
-datadir <- paste(workdir, "/Data_Processed/", sep = "")
-resultdir <- "/Results/SSL_DummyModel_2021-11-20"
-                   
-# Creates result directory for this step on the specified date if not created
-ifelse(!dir.exists(file.path(workdir, resultdir)), 
-       dir.create(file.path(workdir, resultdir)), FALSE)
-
-# create output file connection
-# outpath <- paste(resultdir, "output.Rout", sep = "")
-
-# change to scratch directory
-setwd(workdir)
 
 # Initialize sink - 
 # sink(outpath)
@@ -129,12 +111,8 @@ test_data <- newchoice[,c("choice_id", "used", "V1", "V2", "V3")]
 # SECTION 2: FIT MODEL
 ################################################################################
 
-
-# model compiled on intel14 node, saved in scratch
-comp.modpath <- paste(workdir, resultdir, "/model.rda", sep = "")
-
 # read in compiled model object
-mod <- readRDS(comp.modpath)
+mod <- readRDS("model.rds")
 
 
 #extract id's for each choice set
@@ -156,29 +134,88 @@ inits <- function(){
   )
 }
 # a character vector of parameters to monitor
-params <- c('beta', 'chis_obs', 'chis_sim')
+params <- c('beta', 'chis_obs', 'chis_sim', "rcat", "rch", "expected")
 
 fit <- sampling(mod, data = data, pars = params, init = inits,
                 chains =4, iter = 1000, warmup = 200, thin = 1)
 
 
 # save model fit
-fitpath <- paste(workdir, resultdir, "/SSL_DummyModel_", datestr,
-                 ".rda", sep = "")
-save(fit, file = fitpath)
+saveRDS(fit, "modelfit.rds")
 
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
-  obs.disc <- rstan::extract(fit, 'chis_obs', F)[, , 1]
+  obs.disc <- rstan::extract(fit, 'chis_obs', F)[,,1]
   # extract simulated discrepancies
-  sim.disc <- rstan::extract(fit, 'chis_sim', F)[, , 1]
+  sim.disc <- rstan::extract(fit, 'chis_sim', F)[,,1]
   # number of post-warmup draws
   pdraw <- dim(obs.disc)[1] * dim(obs.disc)[2]
   # Calculate Bayesian P-value
   pval <- sum(rstan::extract(fit, 'chis_sim', F)[, , 1] >
                 rstan::extract(fit, 'chis_obs', F)[, , 1]) / pdraw
   print(pval)
+  
+  #  NEW VERION I'M TRYING 
+  obs.disc <- rstan::extract(fit, 'chis_obs', T)
+  # extract simulated discrepancies
+  sim.disc <- rstan::extract(fit, 'chis_sim',T)
+  # number of post-warmup draws
+  pdraw <- length(obs.disc$chis_obs)
+  # Calculate Bayesian P-value
+  pval <- sum(obs.disc$chis_obs > sim.disc$chis_sim) / pdraw
+  print(pval)
+
+# Messing around trying to figure out how the chi-square test is working 
+# See one note from 12/10/21 for more details 
+obs <- matrix(c(1,0,0,0,0,0), nrow=500, ncol=6, byrow=TRUE)
+pos <- diag(1,6)
+expected <- rstan::extract(fit, "expected")
+rcat <- rstan::extract(fit, "rcat")
+rch <- rstan::extract(fit, "rch")
+chio <- rstan::extract(fit, 'chis_obs')
+chisim <- rstan::extract(fit, 'chis_sim')
+
+
+## NOT SURE WHY MY MANUALLY CALCULATED CHI-SQUARE IS NOT FITTING THE DATA 
+
+# [1] 1 0 0 0 0 0
+expected[[1]][1:50,1,1:6]
+#0.2262241 0.2082138 0.1080995 0.1140147 0.1593858 0.1840622
+obs - expected[[1]][1,1,1:6]
+#0.7737759 -0.2082138 -0.1080995 -0.1140147 -0.1593858 -0.1840622
+(obs - expected[[1]][1,1,1:6])**2
+#0.59872911 0.04335298 0.01168550 0.01299934 0.02540383 0.03387888
+(obs - expected[[1]][1,1,1:6])**2/expected[[1]][1,1,1:6]
+#2.6466192 0.2082138 0.1080995 0.1140147 0.1593858 0.1840622
+sum((obs[1,] - expected[[1]][1,1,1:6])**2/expected[[1]][1,1,1:6])
+
+sum((obs[1:500,] - expected[[1]][1,1:500,1:6])**2/expected[[1]][1,1:500,1:6])
+
+obs.disc[1]
+chio_permT <- rstan::extract(fit, 'chis_obs', T)
+chio_permT$chis_obs[1]
+chio[[1]][1]
+
+
+#3.420395
+rch[[1]][1,1,1:6]
+#0 0 0 0 0 1
+sum((rch[[1]][1,600,1:6] - expected[[1]][1,600,1:6])**2/expected[[1]][1,600,1:6])
+
+sum((rch[[1]][1,1:500,1:6] - expected[[1]][1,1:500,1:6])**2/expected[[1]][1,1:500,1:6])
+chisim[[1]][1]
+
+  
+
+
+hist(expected[[1]][,2,2], col="blue", xmin=0, xmax=0.5)
+hist(expected[[1]][,2,3], add=T, col="red")
+hist(expected[[1]][,2,4], add=T, col="green")
+hist(expected[[1]][,2,5], add=T, col="yellow")
+hist(expected[[1]][,2,6], add=T, col="purple")
+hist(expected[[1]][,2,1], add=T)
+
 
 # print finish time
 end <- Sys.time()

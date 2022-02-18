@@ -205,7 +205,7 @@ ggplot() +
   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5, alpha = 0.8) +
   geom_sf(data=study, fill=NA, color="red")+
   # geom_path is much faster than geom_sf
-  geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id)) +
+  geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id), key_glyph = "rect") +
   scale_color_manual(values=getPalette(11), name = "Individual", labels = sealilabels$labels) +
   xlab("") +
   ylab("") +

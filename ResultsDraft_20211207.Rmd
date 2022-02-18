@@ -1,0 +1,73 @@
+---
+title: "Results Section"
+author: "Kelly Kapsar"
+date: "12/7/2021"
+output: word_document
+---
+
+```{r setup}
+
+library(dplyr)
+library(rstan)
+library(loo)
+
+
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds") 
+used <- ssl[ssl$used == 1,]
+watersealis <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
+topfitlst <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds")
+pctcovars <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/PctCovarsTopFivePct.rds")
+topmodcounts <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/TopModCounts.rds")
+topmodtotals <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/TopModTotals.rds")
+topmodbetas <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/TopModBetas.rds")
+
+megasumms <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/Megasumms.rds")
+megaloos <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/Megaloos.rds")
+megawaics <- readRDS("../Results/SSL_IndlAllCombos_2021-11-16/Megawaics.rds")
+
+# Calculate variables with correlations 
+corrfiles <- paste0("../Data_Processed/Telemetry/", list.files("../Data_Processed/Telemetry", pattern="Corrs")) 
+corrs <- lapply(corrfiles, read.csv)
+for(i in 1:11){
+  ifelse(nchar(corrfiles[i]) == 39, indid <- substr(corrfiles[[i]], 35, 35), 
+         ifelse(nchar(corrfiles[[i]]) == 40, indid <- substr(corrfiles[[i]], 35, 36), print("Something went very wrong.")))
+  ifelse(length(corrs[[i]]$X > 0), corrs[[i]]$ind_id <- indid, next)
+}
+corrs <- do.call("rbind", corrs) %>% select(-X)
+
+# Calculate duration of tags in weeks 
+tagduration <- used %>% group_by(deploy_id) %>% summarize(nweeks = length(unique(weeklyhr_id)))
+
+
+# Calculate average weekly transmission rate
+weeklytransmissions <- used %>% group_by(deploy_id, weeklyhr_id) %>% summarize(n = n()) %>% # Number of transmissions per week
+                        # Average number of weekly transmissions per individual
+                        ungroup() %>% group_by(deploy_id) %>% summarize(avgweek = mean(n)) 
+
+
+nmodels <- unlist(lapply(megasumms, length))
+
+
+choicesets <- ssl %>% select(deploy_id, choice_id) %>% group_by(deploy_id) %>% summarize(nchoice = length(unique(choice_id)))
+
+
+nparams <- topmodbetas %>% group_by(ind_id) %>% summarize(n=n())
+```
+
+## Results 
+
+We collected location data from 11 adult female Steller Sea Lions between November 7, 2018 and July 1, 2020 (Figure XX). GPS tags transmitted an average of `r round(mean(weeklytransmissions$avgweek), 2)` (SD = `r round(sd(weeklytransmissions$avgweek), 2)`) Steller sea lion locations per week for an average of `r mean(tagduration$nweeks)` weeks each (SD = `r round(sd(tagduration$nweeks), 2)`; Figure XX). 
+
+We identified a high degree of collinearity in at least two covariates for `r length(unique(corrs$ind_id))` of the eleven sea lions. After removing collinear variables from all possible combinations of models for each individual Steller sea lion, the number of total models run for each sea lion ranged from `r min(nmodels)+10` to `r max(nmodels)+10`. Model runs obtained good convergence with Rhat values <1.1 and effective sample sizes greater than 100 for all individual model runs. Individual Steller sea lion models consisted of an average of `r round(mean(choicesets$nchoice), 2)` choice sets (SD = `r round(sd(choicesets$nchoice), 2)`.
+
+### Composition of parameters 
+
+The number of parameters included in the best fitting model ranged from a minimum of `r min(nparams$n)` (n = `r sum(nparams$n == min(nparams$n))`) to `r max(nparams$n)` (n = `r sum(nparams$n == max(nparams$n))`). CHECK Three individuals' best fitting models contained seven parameters each and the final two individuals' top models contained five parameters. 
+
+DOUBLE CHECK WITH topmodcounts!! 
+Slope was included in the best fitting models for all 11 Steller sea lions (Figure BARPLOT). Wind speed and bathymetry were both included in 10 of the 11 best fitting models. Sea surface temperature and distance to land were included in 8 of the best fitting models. Distance to land and distance to shelf break were incorporated in 7 of the best fitting models. Fishing and shipping vessel traffic intensity were included in 6 of the 11 top models, and distance to shipping was included in the best fitting model for 5 Steller sea lions.  
+
+
+Slope, wind speed, bathymertry, distance to fishing, and distance to shipping were significantly positively associated with probability of use in all models in which they were included (Figure BARPLOT). Distance to land and shipping traffic intensity were significantly negatively associated with probability of use. Sea surface temperature, distance to shelf break, and fishing traffic intensity each had multiple effect types across the best fitting models. 
+
+

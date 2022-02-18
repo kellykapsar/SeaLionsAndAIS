@@ -1,14 +1,7 @@
 ################################################################################
-# TITLE: Individual Missouri elk resource selection function analysis: Step 5 -
-#   Code for fitting individual models, RSF2
-# PURPOSE: This code is for fitting the random slopes individual resource
-#   selection functions (model RSF2) to the Missouri elk relocation data, i.e. a 
-#   model without indicator variable selection. We use Stan 
-#   because it is much more efficient than Gibbs sampling for this scenario. 
-#   This script is meant to be run on my HPCC ICER account.
-# AUTHOR: Kyle Redilla, RECaP Lab
-# CREATED: 2017-01-09
-# LAST UPDATED ON 2017-01-15
+# TITLE: Resource selection function analysis 
+# Modified by Kelly Kapsar from script by Kyle Redilla 
+# November 2021 
 ################################################################################
 start <- Sys.time()
 # OPEN LIBRARIES 

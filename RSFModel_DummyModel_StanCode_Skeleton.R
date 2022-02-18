@@ -8,26 +8,9 @@
 # Open libraries
 library(rstan)
 
-# Specify directories
-datestr <- format(Sys.time(), "%Y-%m-%d")
-homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
-workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
-# homedir <- "~Documents/SSL/" 
-# workdir <- "/mnt/scratch/kapsarke/Documents/SSL/"
-resultdir <- "Results/SSL_DummyModel_2021-11-20/"
-
-# Creates result directory for this step on the specified date if not created
-ifelse(!dir.exists(file.path(workdir, resultdir)), 
-       dir.create(file.path(workdir, resultdir)), FALSE)
-
 ################################################################################
 # SECTION 1: PREPARE & COMPILE STAN MODEL FILE
 ################################################################################
-
-# Set working directory to scratch 
-setwd(workdir)
-# Specify path to write model to
-modpath <- paste(resultdir, "model.stan", sep = "")
 
 # Write the stan model
 write(
@@ -58,7 +41,7 @@ write(
   
   generated quantities{
     simplex[C] expected[N]; //the probabilities of use from dc_model
-    vector[N] chis_obs_i;   //chi-square value for each choice set using observed data
+    vector[N] chis_obs_i;   //chi-square valuce for each choice set using observed data
     vector[N] chis_sim_i;  // chi-square value from simulated data
     real chis_obs;  //sum of chi square values across all choice sets
     real chis_sim;  //sum of chi square values across all choice sets
@@ -84,13 +67,12 @@ write(
   
   }
 "
-, file = modpath)
+, file = "model.stan")
 
 # Compile the model
-model <- stan_model(modpath)
+model <- stan_model("model.stan")
 
 # Save the compiled model object
-comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
-saveRDS(model, file = comp.modpath)
+saveRDS(model, "model.rds")
 
 
