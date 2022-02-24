@@ -1,13 +1,6 @@
 ################################################################################
-# TITLE: Individual Missouri elk resource selection function analysis: Step 6 -
-#   code for model checking
-# PURPOSE: Checking the convergence of the models, validating the models, and 
-#   comparing models, creating output for determining which models need to be
-#   run longer, which are bogus (e.g., if there is no RX fire in any of used or
-#   available, shouldn't even be in model)
-# AUTHOR: Kyle Redilla, RECaP Lab
-# CREATED: 2017-01-11
-# LAST UPDATED ON 2017-01-11
+# TITLE: Steller sea lion resource selection model fitting 
+
 ################################################################################
 # OPEN LIBRARIES 
 library(rstan)
@@ -474,8 +467,9 @@ for(i in 1:11){
 # 
 # rethinking::precis(topfitlst[[1]])
 
-####################
+############################################
 # Significance counts for variables in best fitting models
+############################################
 
 topmodbetas <- data.frame()
 
@@ -574,7 +568,7 @@ pop.p <- ggplot(data = topmodbetas) +
 
 # figure 2 filepath
 fig1path <- "./JointCaterpillar.png"
-ggsave(filename=fig1path, plot =  pop.p, width = 12, height = 7, units = "in")
+ggsave(filename=fig1path, plot =  pop.p, width = 12, height = 8, units = "in")
 
 ######################################################################################
 
