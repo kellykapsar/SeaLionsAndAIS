@@ -1,0 +1,241 @@
+---
+title: "2b_DistanceToVessels"
+author: "Kelly Kapsar"
+date: "3/4/2022"
+output: html_document
+---
+
+```{r load libraries}
+
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(ggplot2)
+library(scales)
+library(ggmap)
+library(amt) 
+library(stars)
+library(fasterize)
+
+```
+
+```{r}
+# weekly homerange polygons
+hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20211104.shp")
+
+hr$deploy_id <- substr(hr$wklyhr_, 1, 13)
+hr$year <- substr(hr$wklyhr_, 14,17)
+hr$week <- substr(hr$wklyhr_, 18,19)
+
+# Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
+load(file="../Data_Processed/Telemetry/TEMP.rda")
+
+# Land mask (using bathymetry data)
+land <- raster("../Data_Processed/Bathymetry.tif")
+land[values(land) > 0] <- 1
+land[values(land) < 0] <- NA
+
+# Ship data 
+# # Import ship data, create sf objects, combine into one sf object, and generate year value 
+# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
+# ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
+# ships <- do.call(rbind, ships) # Combine all ships into one sf object
+# ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+
+# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
+# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+
+ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+```
+
+
+```{r proximity calculations}
+##################################################################
+############# CALCULATE PROXIMITY TO VESSELS ############# 
+##################################################################
+
+# Standardize dates 
+ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
+
+# Create nested shipping data frame 
+ships_nest <- ships[which(ships$AIS_Typ != "Fishing"),] %>% group_nest(date)
+fish_nest <- ships[which(ships$AIS_Typ == "Fishing"),] %>% group_nest(date)
+
+###########################################################################
+# WORK ZONE
+weeklyhr_ids <- unique(ssl4$weeklyhr_id)
+
+
+extractlanddist <- function(points, ships, fish, land, hrs){
+  ships <- ships[which(ships$date == points$date[1] & ships$AIS_Typ != "Fishing"),]
+  fish <- ships[which(fish$date == points$date[1] & fish$AIS_Typ == "Fishing"),]
+  
+  polyhr <- hrs[which(hrs$deploy_id == points$deploy_id[1] & 
+                   hrs$year == points$year[1] &
+                   hrs$week == points$weekofyear[1]),]
+  
+  
+}
+
+
+
+makeshipras <- function(x){
+  st_buffer()
+  
+}
+
+
+
+shipsin <- lines[st_intersects(polyhr, lines, sparse=FALSE),]
+
+
+template <- raster(polyhr, res=250, crs=st_crs(polyhr)) # 100 m resolution
+values(template) <- 0
+templatesf <- stars::st_as_stars(template) %>% st_as_sf()
+
+cellswithtraff <- st_intersects(linesin, templatesf, sparse=F)
+templatesf$traff <- colSums(cellswithtraff) > 0
+
+test <- fasterize(templatesf, template, field="traff")
+
+landcrop <- raster::resample(land, test, method="ngb")
+newtest <- raster::mask(test, landcrop, maskvalue = 1)
+# plot(newtest)
+
+
+distshipras <- gridDistance(newtest, origin = 1, omit=NA)/1000
+distshipsf <- stars::st_as_stars(distshipras) %>% st_as_sf()
+distshipbuff <- st_buffer(distshipsf, dist=125)
+# Extract value for each used/available point as the average of the four nearest cells
+distshp <- function(pt, shipshp){
+  vals <- shipshp$layer[st_intersects(pt, shipshp, sparse=F)]
+  ifelse(length(vals) == 0, return(NA), 
+         ifelse(length(vals) > 1, return(mean(vals)), return(vals)))
+}
+
+points$prox_ship_km_new <- NA
+
+cor.test(points$prox_ship_km, points$prox_ship_km_new, method="spearman")
+
+points$prox_ship_km_new  <- lapply(points$geometry, function(x){distshp(x, distshipbuff)})
+
+
+
+
+
+########################################################################
+# Find nearest line to each point 
+prox <- function(points, lines){
+  # Isolate out only lines from the week of interest and extract from nested data
+  l <- lines[which(lines$date == points$date[1]),] %>% 
+        unnest(., cols=c(data)) %>%
+        mutate(geometry = st_sfc(geometry)) %>%
+        st_as_sf()
+  # Calculate nearest line to each point
+  nearest <- st_nearest_feature(points, l)
+  # Calculate distance to that line, convert to kilometers, and round 
+  dist <- round(as.numeric(st_distance(points, l[nearest,], by_element=T))/1000, 4) 
+  return(dist)
+}
+
+# TAKES ~1.5 HRS
+start <- proc.time()
+newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id), 1000, replace=F)
+             group_nest(date, keep=TRUE) %>% # Create set of nested data frames by week
+             rename(date_outer = date) %>% 
+             mutate(data = purrr::map(data, # Go within the data frame 
+                ~mutate(.x, prox_ship_km = prox(.x, ships_nest), 
+                            prox_fish_km = prox(.x, fish_nest)))) %>% # Add new columns within each df to calculate proximity
+             unnest(cols=c(data)) %>%         
+             mutate(geometry = st_sfc(geometry)) %>%
+             st_as_sf()
+proc.time()-start
+
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
+
+# Identify SSL locations outside the AIS boundaries
+newdata$ais_bounds <- st_intersects(newdata, aisbound_sf, sparse=FALSE)
+
+ssl4 <- newdata
+
+save(ssl4, file="../Data_Processed/Telemetry/TEMP.rda")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
+```
+
+```{r final cleaning and save}
+
+#################################################
+############# CLEAN UP DATA AND SAVE ############ 
+#################################################
+
+# Turn used into a factor, log transform skewed vars, and drop geometry
+ssl_orig <- ssl4 %>% mutate(used = as.factor(used), 
+                           logfish = log(fish+1), 
+                           logship = log(ship+1)) %>% 
+                    st_drop_geometry()
+
+# Create an individual id
+ssl <- ssl %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
+
+# Reorder columns to a more logical order 
+covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+
+colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
+
+ssl <- ssl[,colorder] %>% as.data.frame()
+
+# Order data appropriately 
+ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
+
+# Recalculate choice sets now that short ones have been removed
+ssl$choice_id <- rep(1:(length(ssl$choice_id)/6), each=6)
+
+```
+
+```{r save output}
+
+
+############################################################
+############## SAVE OUTPUT WITH ALL VARIABLES ############## 
+############################################################
+
+# NOTE: I'M KEEPING INCOMPLETE CASES IN THE DATA SET SINCE IT WON'T BE USED FOR ANALYSIS
+# THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
+
+# Save output as non-spatial and without coordinates
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.csv")
+
+# Make it spatial again
+ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.shp", overwrite=T)
+
+########################################################### 
+############## SAVE OUTPUT WITHOUT SSH & EKE ############## 
+###########################################################
+
+# Remove coarse scale abiotic variables and select only complete cases 
+ssl_narrow <- ssl %>% select(-ssh, -eke) %>% na.omit() %>% as.data.frame()
+
+# Remove choice_ids with insufficient sample size due to NA values 
+tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
+ssl_narrow <- left_join(ssl_narrow, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id"))
+ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
+
+# Save output as non-spatial and without coordinates
+ssl_narrow_nocoords <- ssl_narrow %>% select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.csv")
+
+# Make it spatial again
+ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.shp")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+```
