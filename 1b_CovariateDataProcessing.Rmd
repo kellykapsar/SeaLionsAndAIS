@@ -202,7 +202,7 @@ bathy2[!shallow & !deep] <- 2
 bathy2[raster::coordinates(bathy2)[,2] > 6650000] <- 0 # This removes the deeper parts of PWS 
 bathy2[land] <- 1
 
-# Calculate distance to nearest cell with a value of 2(going around any cell with a value of 1)
+# Calculate distance to nearest cell with a value of 2 (going around any cell with a value of 1)
 dist500m <- gridDistance(bathy2, origin = 2,
                   omit = 1)/1000
 
@@ -224,34 +224,34 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 ```
 
-## AIS Data
+## AIS Data --- Intensity
 ```{r ais, warning=FALSE}
-
+start <- proc.time()
 # Boundary for AIS data acquisition
 aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
 aisbound_sp <- aisbound_sf %>% as("Spatial")
 
 # Import raster, reproject to 4336, and crop to study area
-fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster", pattern="Fishing")
-otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster", pattern="Other")
-cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster", pattern="Cargo")
-tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster", pattern="Tanker")
+fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Fishing")
+otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Other")
+cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Cargo")
+tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Tanker")
 
 # Create raster bricks for each ship type 
 fishingras <- lapply(fishinglist, 
-                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/", x)), crs=prj)})
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
 fishingbrick <- raster::brick(fishingras) %>% raster::mask(aisbound_sp)
 
 otherras <- lapply(otherlist, 
-                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/", x)), crs=prj)})
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
 otherbrick <- raster::brick(otherras) %>% raster::mask(aisbound_sp)
 
 cargoras <- lapply(cargolist, 
-                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/", x)), crs=prj)})
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
 cargobrick <- raster::brick(cargoras) %>% raster::mask(aisbound_sp)
 
 tankerras <- lapply(tankerlist, 
-                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/", x)), crs=prj)})
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
 tankerbrick <- raster::brick(tankerras) %>% raster::mask(aisbound_sp)
 
 shippingbrick <- otherbrick + cargobrick + tankerbrick
@@ -288,25 +288,107 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 #               zname="time", xname="lon",   yname="lat")
 # 
 # saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
-# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-#               overwrite=TRUE, format="CDF")
+
 # Plot results
-fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
-colnames(fish.df) <- c("x","y","intensity")
+# fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
+# colnames(fish.df) <- c("x","y","intensity")
 
 # Fun animation of the raster brick
 # animate(fishingbrick, pause=0.5, n=1)
 
 # Map of study area with bathymetric data 
-ggplot() +
-  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=fish.df, aes(x=x, y=y, fill=intensity), alpha=0.9) +
-  # geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
-  geom_sf(data=study, fill=NA, color="red") +
-  scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
+# ggplot() +
+#   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+#   geom_raster(data=fish.df, aes(x=x, y=y, fill=intensity), alpha=0.9) +
+#   # geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
+#   geom_sf(data=study, fill=NA, color="red") +
+#   scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
 
 ```
 
+## AIS Data -- Proximity 
+
+```{r ais, warning=FALSE}
+
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
+aisbound_sp <- aisbound_sf %>% as("Spatial")
+
+# Land mask 
+land <- raster("../Data_Processed/Bathymetry.tif")
+land[values(land) > 0] <- 1
+land[values(land) < 0] <- NA
+
+# # Import ship data, create sf objects, combine into one sf object, and generate year value 
+# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
+# ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
+# ships <- do.call(rbind, ships) # Combine all ships into one sf object
+# ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+
+# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
+# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+
+# Then data were sent to AIS_Rasterization_SSLSubset_20210824.R (in Alaska Conservation AIS folder)
+
+# Import raster, reproject to 4336, and crop to study area
+fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Fishing")
+otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Other")
+cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Cargo")
+tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Tanker")
+
+# Create raster bricks for each ship type 
+fishingras <- lapply(fishinglist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+landcrop <- raster::resample(land, fishingras[[1]], method="ngb")
+
+# Set all values > 1 equal to 1
+ToOnes <- function(ras){
+  values(ras)[values(ras) > 0] <- 1
+  return(ras)
+}
+
+
+start <- proc.time()
+for(i in 1:92){
+  print(i)
+  ras <- fishingras[[i]]
+  masked <- raster::mask(ras, landcrop, maskvalue = 1)
+  maskedbinary <- ToOnes(masked)
+  temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
+  rasname <- substr(gsub("\\.", "_", names(fishingras[[i]])), 7,30)
+  writeRaster(temp, paste0("../Data_Processed/AIS/FishingDistance_", rasname,".tif"))
+}
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+
+otherras <- lapply(otherlist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+cargoras <- lapply(cargolist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))}) 
+
+tankerras <- lapply(tankerlist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+shippingras <- c()
+for(i in 1:92){
+  temp <- otherras[[i]] + cargoras[[i]] + tankerras[[i]]
+  shippingras <- c(shippingras, temp)
+}
+
+for(i in 1:92){
+  print(i)
+  ras <- shippingras[[i]]
+  masked <- raster::mask(ras, landcrop, maskvalue = 1)
+  maskedbinary <- ToOnes(masked)
+  temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
+  rasname <- substr(gsub("\\.", "_", names(fishingras[[i]])), 7,30)
+  writeRaster(temp, paste0("../Data_Processed/AIS/ShippingDistance_", rasname,".tif"))
+}
+(proc.time()-start)/60
+
+```
 
 ## Sea Surface Height
 
