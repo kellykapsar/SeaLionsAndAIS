@@ -31,22 +31,17 @@ hr$week <- substr(hr$wklyhr_, 18,19)
 # Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
 load(file="../Data_Processed/Telemetry/TEMP.rda")
 
-# Land mask (using bathymetry data)
-land <- raster("../Data_Processed/Bathymetry.tif")
-land[values(land) > 0] <- 1
-land[values(land) < 0] <- NA
+# Vessel cost distance rasters
+shiplist <- list.files("../Data_Processed/AIS/", pattern="ShippingDistance")
+fishlist <- list.files("../Data_Processed/AIS/", pattern="FishingDistance")
 
-# Ship data 
-# # Import ship data, create sf objects, combine into one sf object, and generate year value 
-# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
-# ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
-# ships <- do.call(rbind, ships) # Combine all ships into one sf object
-# ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+# file.rename(paste0("../Data_Processed/AIS/",shiplist), gsub(paste0("../Data_Processed/AIS/",shiplist), pattern="_Fishing", replacement = ""))
+# file.rename(paste0("../Data_Processed/AIS/",fishlist), gsub(paste0("../Data_Processed/AIS/",fishlist), pattern="_Fishing", replacement = ""))
 
-# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
-# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+# Boundary for AIS data acquisition
+# aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(32605) 
+# aisbound_sp <- as(aisbound_sf, "Spatial")
 
-ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 ```
 
 
@@ -54,59 +49,6 @@ ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_R
 ##################################################################
 ############# CALCULATE PROXIMITY TO VESSELS ############# 
 ##################################################################
-
-# Standardize dates 
-ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
-
-# Create nested shipping data frame 
-ships_nest <- ships[which(ships$AIS_Typ != "Fishing"),] %>% group_nest(date)
-fish_nest <- ships[which(ships$AIS_Typ == "Fishing"),] %>% group_nest(date)
-
-###########################################################################
-# WORK ZONE
-weeklyhr_ids <- unique(ssl4$weeklyhr_id)
-
-
-extractlanddist <- function(points, ships, fish, land, hrs){
-  ships <- ships[which(ships$date == points$date[1] & ships$AIS_Typ != "Fishing"),]
-  fish <- ships[which(fish$date == points$date[1] & fish$AIS_Typ == "Fishing"),]
-  
-  polyhr <- hrs[which(hrs$deploy_id == points$deploy_id[1] & 
-                   hrs$year == points$year[1] &
-                   hrs$week == points$weekofyear[1]),]
-  
-  
-}
-
-
-
-makeshipras <- function(x){
-  st_buffer()
-  
-}
-
-
-
-shipsin <- lines[st_intersects(polyhr, lines, sparse=FALSE),]
-
-
-template <- raster(polyhr, res=250, crs=st_crs(polyhr)) # 100 m resolution
-values(template) <- 0
-templatesf <- stars::st_as_stars(template) %>% st_as_sf()
-
-cellswithtraff <- st_intersects(linesin, templatesf, sparse=F)
-templatesf$traff <- colSums(cellswithtraff) > 0
-
-test <- fasterize(templatesf, template, field="traff")
-
-landcrop <- raster::resample(land, test, method="ngb")
-newtest <- raster::mask(test, landcrop, maskvalue = 1)
-# plot(newtest)
-
-
-distshipras <- gridDistance(newtest, origin = 1, omit=NA)/1000
-distshipsf <- stars::st_as_stars(distshipras) %>% st_as_sf()
-distshipbuff <- st_buffer(distshipsf, dist=125)
 # Extract value for each used/available point as the average of the four nearest cells
 distshp <- function(pt, shipshp){
   vals <- shipshp$layer[st_intersects(pt, shipshp, sparse=F)]
@@ -114,11 +56,30 @@ distshp <- function(pt, shipshp){
          ifelse(length(vals) > 1, return(mean(vals)), return(vals)))
 }
 
-points$prox_ship_km_new <- NA
+###########################################################################
+# WORK ZONE
 
-cor.test(points$prox_ship_km, points$prox_ship_km_new, method="spearman")
+ssl4$prox_ship_km_new <- NA
+ssl4$prox_fish_km_new <- NA
 
-points$prox_ship_km_new  <- lapply(points$geometry, function(x){distshp(x, distshipbuff)})
+for(i in 1:length(unique(ssl4$date))){
+  week <- unique(ssl4$date)[i]
+  sslwk <- ssl4[which(ssl4$date == week),]
+  fishwk <- raster(paste0("../Data_/AIS/", fishlist[grepl(x = fishlist, pattern=week)]))
+  shipwk <- raster(paste0("../Data/AIS/", shiplist[grepl(x = shiplist, pattern=week)]))
+  
+  distshipsf <- stars::st_as_stars(shipwk) %>% st_as_sf()
+  distshipbuff <- st_buffer(distshipsf, dist=125)
+  prox_ship_km_new  <- lapply(sslwk$geometry, function(x){distshp(x, distshipbuff)})
+  ssl4$prox_ship_km_new[which(ssl4$date == week)] <- prox_ship_km_new
+  
+  distfishsf <- stars::st_as_stars(fishwk) %>% st_as_sf()
+  distfishbuff <- st_buffer(distfishsf, dist=125)
+  prox_fish_km_new  <- lapply(sslwk$geometry, function(x){distshp(x, distfishbuff)})
+  ssl4$prox_fish_km_new[which(ssl4$date == week)] <- prox_fish_km_new
+}
+
+saveRDS(ssl4, "../Data_Processed/")
 
 
 

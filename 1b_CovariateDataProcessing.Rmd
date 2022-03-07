@@ -383,7 +383,7 @@ for(i in 1:92){
   masked <- raster::mask(ras, landcrop, maskvalue = 1)
   maskedbinary <- ToOnes(masked)
   temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
-  rasname <- substr(gsub("\\.", "_", names(fishingras[[i]])), 7,30)
+  rasname <- substr(gsub("\\.", "_", names(shippingras[[i]])), 7,30)
   writeRaster(temp, paste0("../Data_Processed/AIS/ShippingDistance_", rasname,".tif"))
 }
 (proc.time()-start)/60
