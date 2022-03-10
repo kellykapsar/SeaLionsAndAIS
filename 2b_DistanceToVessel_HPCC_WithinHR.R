@@ -1,0 +1,142 @@
+
+
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(stars)
+library(fasterize)
+library(foreach)
+library(doParallel)
+
+# weekly homerange polygons
+hr <- st_read("../Data/Homerange_KDE_weekly_20211104.shp")
+
+hr$deploy_id <- substr(hr$wklyhr_, 1, 13)
+hr$year <- substr(hr$wklyhr_, 14,17)
+hr$week <- substr(hr$wklyhr_, 18,19)
+
+# Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
+# ssl5 <- readRDS(file="../Data/ssl5.rds")
+load(file="../Data/TEMP.rda")
+
+# Vessel tracklines
+ships <- readRDS( "../Data/AIS/AllVessels_Reprojected.rds")
+
+# Land raster
+land <- raster("../Data/Bathymetry.tif")
+land[values(land) > 0] <- 1
+land[values(land) < 0] <- NA
+
+
+
+options(mc.cores = parallel::detectCores())
+
+# Start cluster
+# cl <- 28
+# clus <- makeCluster(cl)
+# registerDoParallel(clus)
+registerDoParallel(cores=as.numeric(Sys.getenv("SLURM_CPUS_ON_NODE")[1]))
+
+##################################################################
+############# CALCULATE PROXIMITY TO VESSELS ############# 
+##################################################################
+# Standardize dates 
+ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
+
+# ID unique SSL/week combos 
+weeklyhr_ids <- unique(ssl4$weeklyhr_id)
+
+# Separate fishing vessel from other vesels 
+nofish <- ships[ships$AIS_Typ != "Fishing",]
+fish <- ships[ships$AIS_Typ == "Fishing",]
+
+# Afunction to create a cost distance raster tot he nearest ship using a set of points
+# with their associated homerange polygon, vector lines for vessels, and a raster
+# of land pixels 
+extractcostdist <- function(pts, lines, land, hrs){
+  # Id correct homerange polygon 
+  polyhr <- hrs[which(hrs$deploy_id == pts$deploy_id[1] & 
+                        hrs$year == pts$year[1] &
+                        hrs$week == pts$weekofyear[1]),]
+  polyhr <- st_buffer(polyhr, 100000)
+  # Id lines within the date range
+  lines <- lines[lines$date == pts$date[1],]
+  # Isolate lines that spatially intersect homerange
+  linesin <- lines[st_intersects(polyhr, lines, sparse=FALSE),]
+  if(length(linesin$AIS_ID) == 0){return(NA)}
+  # Create template raster at 250 m resolution
+  template <- raster(polyhr, res=250, crs=st_crs(polyhr)) 
+  values(template) <- 0
+  # Convert template to sf obj
+  templatesf <- stars::st_as_stars(template) %>% st_as_sf()
+  # Id cells with intersecting lines in sf obj
+  cellswithtraff <- st_intersects(linesin, templatesf, sparse=F)
+  templatesf$traff <- colSums(cellswithtraff) > 0
+  # Convert back to raster
+  test <- fasterize(templatesf, template, field="traff")
+  # Resample land raster to match ship raster 
+  landcrop <- raster::resample(land, test, method="ngb")
+  # Mask land out of ship raster 
+  newtest <- raster::mask(test, landcrop, maskvalue = 1)
+  # Calculate least cost path around land and convert to km 
+  distshipras <- gridDistance(newtest, origin = 1, omit=NA)/1000
+  # Convert back to sf object and buffer 
+  distshipsf <- stars::st_as_stars(distshipras) %>% st_as_sf()
+  distshipbuff <- st_buffer(distshipsf, dist=125)
+  return(distshipbuff)
+}
+
+################ FISHING ################ 
+# Extract pixel values from cost distance raster
+start <- proc.time()
+
+ssl5 <- foreach(i = 1:5, .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
+  print(i)
+  pts <- ssl4[which(ssl4$weeklyhr_id == weeklyhr_ids[i]),]
+  
+  costdist <- extractcostdist(pts, fish, land, hr)
+  pts$prox_fish_km_new <- NA
+  
+  if(class(costdist) == "logical"){
+    print(paste0(weeklyhr_ids[i], " removed."))
+    # next
+  }
+  vals <- st_intersects(pts, costdist)
+  
+  temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
+  pts$prox_fish_km_new <- unlist(temp)
+  
+  saveRDS(pts, paste0("../Data/ssl5/Telemetry/ssl5/",weeklyhr_ids[i],".rds"))
+}
+
+
+
+# print(paste0(length(unique(ssl4$weeklyhr_id)), " weeks of data in ssl4."))
+# print(paste0(length(unique(ssl5$weeklyhr_id)), " weeks of data in ssl5."))
+# 
+# ################ SHIPPING ################ 
+# # Extract pixel values from cost distance raster
+# start <- proc.time()
+# 
+# ssl6 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
+#   print(i)
+#   pts <- ssl5[which(ssl5$weeklyhr_id == weeklyhr_ids[i]),]
+#   
+#   costdist <- extractcostdist(pts, nofish, land, hr)
+#   pts$prox_ship_km_new <- NA
+#   
+#   if(class(costdist) == "logical"){
+#     next
+#   }
+#   vals <- st_intersects(pts, costdist)
+#   
+#   temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
+#   pts$prox_ship_km_new <- unlist(temp)
+#   ssl6 <- rbind(ssl6, pts)
+# }
+# proc.time() - start
+# 
+# saveRDS(ssl6, "../Data/ssl6.rds")
+# 
+# print(paste0(length(unique(ssl6$weeklyhr_id)), " weeks of data in ssl6."))
