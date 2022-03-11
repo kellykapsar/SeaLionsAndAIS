@@ -61,7 +61,10 @@ sealilabels<- data.frame(names = c("SSL2018774PWS", "SSL2018775PWS", "SSL2018776
                                    "SSL2019785KOD", "SSL2019786KOD", "SSL2019788KOD"), 
                          labels=c("774PWS", "775PWS", "776PWS", "777PWS", 
                                   "781KOD", "782KOD", "783KOD", "784KOD", 
-                                  "785KOD", "786KOD", "788KOD"))
+                                  "785KOD", "786KOD", "788KOD"), 
+                         colors= c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c",
+                                   "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+                                   "#cab2d6", "#8967ae", "#ffff99"))
 
 getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
@@ -206,7 +209,7 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")+
   # geom_path is much faster than geom_sf
   geom_path(data=sealis, aes(x=easting, y=northing, color=deploy_id), key_glyph = "rect") +
-  scale_color_manual(values=getPalette(11), name = "Individual", labels = sealilabels$labels) +
+  scale_color_manual(values=sealilabels$color, name = "Individual", labels = sealilabels$labels) +
   xlab("") +
   ylab("") +
   scale_x_continuous(expand = c(0, 0)) +
