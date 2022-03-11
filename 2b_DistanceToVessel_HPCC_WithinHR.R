@@ -91,52 +91,34 @@ extractcostdist <- function(pts, lines, land, hrs){
 # Extract pixel values from cost distance raster
 start <- proc.time()
 
-ssl5 <- foreach(i = 1:5, .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
+ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
   print(i)
   pts <- ssl4[which(ssl4$weeklyhr_id == weeklyhr_ids[i]),]
   
-  costdist <- extractcostdist(pts, fish, land, hr)
+  # FISH
+  costdistfish <- extractcostdist(pts, fish, land, hr)
   pts$prox_fish_km_new <- NA
   
-  if(class(costdist) == "logical"){
+  if(class(costdistfish) == "logical"){
     print(paste0(weeklyhr_ids[i], " removed."))
     # next
+  }
+  valsfish <- st_intersects(pts, costdistfish)
+  
+  tempfish  <- lapply(1:length(pts$date_outer), function(x){mean(costdistfish$layer[valsfish[[x]]])})
+  pts$prox_fish_km_new <- unlist(tempfish)
+  
+  # SHIPS 
+  costdist <- extractcostdist(pts, nofish, land, hr)
+  pts$prox_ship_km_new <- NA
+  
+  if(class(costdist) == "logical"){
+    next
   }
   vals <- st_intersects(pts, costdist)
   
   temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
-  pts$prox_fish_km_new <- unlist(temp)
+  pts$prox_ship_km_new <- unlist(temp)
   
-  saveRDS(pts, paste0("../Data/ssl5/Telemetry/ssl5/",weeklyhr_ids[i],".rds"))
+  saveRDS(pts, paste0("../Data/ssl5/",weeklyhr_ids[i],".rds"))
 }
-
-
-
-# print(paste0(length(unique(ssl4$weeklyhr_id)), " weeks of data in ssl4."))
-# print(paste0(length(unique(ssl5$weeklyhr_id)), " weeks of data in ssl5."))
-# 
-# ################ SHIPPING ################ 
-# # Extract pixel values from cost distance raster
-# start <- proc.time()
-# 
-# ssl6 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
-#   print(i)
-#   pts <- ssl5[which(ssl5$weeklyhr_id == weeklyhr_ids[i]),]
-#   
-#   costdist <- extractcostdist(pts, nofish, land, hr)
-#   pts$prox_ship_km_new <- NA
-#   
-#   if(class(costdist) == "logical"){
-#     next
-#   }
-#   vals <- st_intersects(pts, costdist)
-#   
-#   temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
-#   pts$prox_ship_km_new <- unlist(temp)
-#   ssl6 <- rbind(ssl6, pts)
-# }
-# proc.time() - start
-# 
-# saveRDS(ssl6, "../Data/ssl6.rds")
-# 
-# print(paste0(length(unique(ssl6$weeklyhr_id)), " weeks of data in ssl6."))
