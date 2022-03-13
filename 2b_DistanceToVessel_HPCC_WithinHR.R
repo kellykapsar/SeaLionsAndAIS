@@ -101,7 +101,6 @@ ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr
   
   if(class(costdistfish) == "logical"){
     print(paste0(weeklyhr_ids[i], " removed."))
-    # next
   }
   valsfish <- st_intersects(pts, costdistfish)
   
