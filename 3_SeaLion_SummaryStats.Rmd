@@ -63,13 +63,15 @@ Pull in SSL data.
 
 ```{r}
 
-ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds") 
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220311.rds") 
 
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
-covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Distance to fishing (km)", "Distance to shipping (km)")
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km", "prox_fish_km_new", "prox_ship_km_new")
+covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Euc. Distance to fishing (km)", "Euc. Distance to shipping (km)", "LCP Distance to fishing (km)", "LCP Distance to shipping (km)")
 
 # Get colors for individuals
-getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
+                                   "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+                                   "#cab2d6", "#8967ae", "#ffff99")
 ```
 
 Calculate tag duration. 
@@ -128,10 +130,79 @@ for(i in 1:11){
 }
 
 
+# Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
+
+# Violin plots of all covars: used vs. available by individual
+lapply(1:12, function(i){
+  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="deploy_id")) +
+    geom_violin() +
+    facet_wrap(~deploy_id) +
+    scale_fill_manual(values = getPalette) +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    xlab("") +
+    ylab(covar_names_proper[i]) +
+    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
+      theme(axis.text.x = element_text(size=15), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/UsedVsAvail_ByIndl", covar_names[i], ".png"), width = 10, height = 7, units="in")
+})
+
+# Violin plots of all covars: used vs. available 
+lapply(1:12, function(i){
+  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="used")) +
+    geom_violin() +
+    scale_fill_manual(values = getPalette) +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    xlab("") +
+    ylab(covar_names_proper[i]) +
+    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
+      theme(axis.text.x = element_text(size=15), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/UsedVsAvail_", covar_names[i], ".png"), width = 10, height = 7, units="in")
+})
+
+# Violin plots of all covars: by individual
+lapply(1:12, function(i){
+  ggplot(ssl, aes_string(x="deploy_id", y=covar_names[i], fill="deploy_id")) +
+      geom_violin() +
+      scale_fill_manual(values = getPalette) +
+      # geom_boxplot(width = 0.1, alpha=0.4, color="grey") +
+      ylab(covar_names_proper[i]) +
+      xlab("") +
+      theme(axis.text.x = element_text(angle = 55, size=15, hjust=1, vjust=1), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/UsedByIndl_", covar_names[i], ".png"), width = 10, height = 5, units="in")
+})
+
+
+# Correlations between covariates 
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, logfish, logship, sst, prox_ship_km, prox_fish_km, prox_ship_km_new, prox_fish_km_new)%>% 
+  ggcorr(label=T)
+
+```
+
+```{r}
+
+# Remove old Euclidean distance calculations and calculate pairwise correlations
+ssl_new <- ssl %>% 
+  dplyr::select(-prox_ship_km, -prox_fish_km) %>% 
+  rename(prox_ship_km = prox_ship_km_new, prox_fish_km = prox_fish_km_new)
+
+# Double check to make sure it worked
+length(which(ssl$prox_fish_km_new == ssl_new$prox_fish_km))
+length(which(ssl$prox_ship_km_new == ssl_new$prox_ship_km))
+
 # Create lookup table for matching matrix column number to covariate name 
 # ONLY FOR USE ON RSF_ARRAY, NOT RS_DATA....Otherwise column numbers will be messed up
+# Remove Euclidean distance from the analysis 
 lookup <- 1:10
-names(lookup) <-covar_names
+names(lookup) <- covar_names[1:10]
 
 getcovarcol <- function(colname, lookupvector){
   colnum <- unname(lookupvector[colname])
@@ -140,8 +211,8 @@ getcovarcol <- function(colname, lookupvector){
 
 
 # Get a list of pairwise correlations >0.6 for each individual
-corrlist <- lapply(1:11, function(x) ssl %>% filter(ind_id == x) %>% 
-                          dplyr::select(all_of(covar_names)) %>% 
+corrlist <- lapply(1:11, function(x) ssl_new %>% filter(ind_id == x) %>% 
+                          dplyr::select(all_of(covar_names[1:10])) %>% 
                           corrr::correlate() %>% 
                           corrr::shave() %>% 
                           corrr::stretch() %>% 
@@ -150,62 +221,6 @@ corrlist <- lapply(1:11, function(x) ssl %>% filter(ind_id == x) %>%
                           # Convert column names to matrix numbers
 
 lapply(1:11, function(x)write.csv(corrlist[[x]], paste0("../Data_Processed/Telemetry/Corrs_", x, ".csv")))
-
-# Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
-
-# Violin plots of all covars: used vs. available by individual
-lapply(1:10, function(i){
-  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="deploy_id")) +
-    geom_violin() +
-    facet_wrap(~deploy_id) +
-    scale_fill_manual(values = getPalette(11)) +
-    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
-    xlab("") +
-    ylab(covar_names_proper[i]) +
-    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
-      theme(axis.text.x = element_text(size=15), 
-            axis.text.y = element_text(size=15),
-            axis.title=element_text(size=20), 
-            legend.position="None") 
-  # ggsave(filename=paste0("../Figures/UsedVsAvail_ByIndl", covar_names[i], ".png"), width = 10, height = 7, units="in")
-})
-
-# Violin plots of all covars: used vs. available 
-lapply(1:10, function(i){
-  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="used")) +
-    geom_violin() +
-    scale_fill_manual(values = getPalette(11)) +
-    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
-    xlab("") +
-    ylab(covar_names_proper[i]) +
-    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
-      theme(axis.text.x = element_text(size=15), 
-            axis.text.y = element_text(size=15),
-            axis.title=element_text(size=20), 
-            legend.position="None") 
-  # ggsave(filename=paste0("../Figures/UsedVsAvail_", covar_names[i], ".png"), width = 10, height = 7, units="in")
-})
-
-# Violin plots of all covars: by individual
-lapply(1:10, function(i){
-  ggplot(ssl, aes_string(x="deploy_id", y=covar_names[i], fill="deploy_id")) +
-      geom_violin() +
-      scale_fill_manual(values = getPalette(11)) +
-      # geom_boxplot(width = 0.1, alpha=0.4, color="grey") +
-      ylab(covar_names_proper[i]) +
-      xlab("") +
-      theme(axis.text.x = element_text(angle = 55, size=15, hjust=1, vjust=1), 
-            axis.text.y = element_text(size=15),
-            axis.title=element_text(size=20), 
-            legend.position="None") 
-  # ggsave(filename=paste0("../Figures/UsedByIndl_", covar_names[i], ".png"), width = 10, height = 5, units="in")
-})
-
-
-# Correlations between covariates 
-ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, fish, ship, sst, prox_ships_km, prox_fish_km)%>% 
-  ggcorr(label=T)
-
 ```
 
 
