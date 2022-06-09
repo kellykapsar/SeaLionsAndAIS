@@ -1,0 +1,494 @@
+---
+title: "Covariate Data Processing"
+author: "Kelly Kapsar"
+date: "11/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries. 
+```{r message=FALSE, warning=FALSE}
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(ggplot2)
+library(marmap)
+library(ncdf4)
+library(anytime)
+library(rgdal)
+library(scales)
+library(lubridate)
+
+```
+
+
+```{r specify functions}
+
+`%+=%` = function(e1,e2) eval.parent(substitute(e1 <- e1 + e2))
+
+# This function takes a date and converts into a season and year
+# Season is calculted based on the meteorological definition (e.g., equinox/solstice)
+# Winter dates in December are attributed to the following year
+# (i.e., December 21-31, 2019 is classified as part of Winter 2020)
+getSeasonYear <- function(input.date){
+  numeric.date <- 100*month(input.date)+day(input.date)
+  yrs <- year(input.date)
+  yearsnew <- unlist(lapply(1:length(yrs), function(x) ifelse(numeric.date[x] > 1220, yrs[x] %+=% 1, yrs[x])))
+  ## input Seasons upper limits in the form MMDD in the "break =" option:
+  cuts <- base::cut(numeric.date, breaks = c(0,319,0620,0921,1220,1231)) 
+  # rename the resulting groups (could've been done within cut(...levels=) if "Winter" wasn't double
+  levels(cuts) <- c("Winter","Spring","Summer","Fall","Winter")
+  seasonyear <- paste0(cuts, "-", yearsnew)
+  return(seasonyear)
+}
+```
+
+Study area boundaries. 
+
+```{r study area warning=FALSE}
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
+# Create study area polygon
+coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
+study <- coords %>% 
+         st_as_sf(coords = c("lon", "lat"), crs=4326) %>% 
+         group_by(id) %>% 
+         summarize(geometry = st_combine(geometry)) %>%  
+         st_cast("POLYGON") %>% 
+         st_transform(prj)
+# st_write(study, "../Data_Raw/studyarea.shp")
+
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(prj) %>%  st_buffer(0)
+
+# Crop basemap to buffered extent of study area 
+study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
+basemap.crop <- st_crop(basemap, study.buff)
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Get latlong coordinates for study area for use in downloading other data sets
+studylatlon <- study %>% st_transform(4269) %>% st_bbox()
+```
+
+## AIS Data --- Intensity
+```{r ais, warning=FALSE}
+start <- proc.time()
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
+aisbound_sp <- aisbound_sf %>% as("Spatial")
+
+# Import raster, reproject to 4336, and crop to study area
+fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Fishing")
+otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Other")
+cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Cargo")
+tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", pattern="Tanker")
+
+# Create raster bricks for each ship type 
+fishingras <- lapply(fishinglist, 
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
+fishingbrick <- raster::brick(fishingras) %>% raster::mask(aisbound_sp)
+
+otherras <- lapply(otherlist, 
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
+otherbrick <- raster::brick(otherras) %>% raster::mask(aisbound_sp)
+
+cargoras <- lapply(cargolist, 
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
+cargobrick <- raster::brick(cargoras) %>% raster::mask(aisbound_sp)
+
+tankerras <- lapply(tankerlist, 
+                function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
+tankerbrick <- raster::brick(tankerras) %>% raster::mask(aisbound_sp)
+
+shippingbrick <- otherbrick + cargobrick + tankerbrick
+
+# Convert units to km 
+shippingbrick <- shippingbrick/1000
+fishingbrick <- fishingbrick/1000
+
+######## Weekly and seasonal indices ######## 
+# Create list of weeks 
+yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/31"), "week")
+  
+# convert to season and year 
+idx <- getSeasonYear(yearmon)
+
+######## ######## ######## ######## ########
+# Aggregate shipping and fishing data to season 
+shippingbrickseason <- stackApply(shippingbrick, idx, fun=sum)
+fishingbrickseason <- stackApply(fishingbrick, idx, fun=sum)
+
+names(shippingbrickseason) <- unique(idx)
+names(fishingbrickseason) <- unique(idx)
+
+shippingbrickseason <- raster::setZ(shippingbrickseason, unique(idx))
+fishingbrickseason <- raster::setZ(fishingbrickseason, unique(idx))
+
+# Save raster bricks as netcdf files 
+# Save output file
+writeRaster(shippingbrickseason, "../Data_Processed/AIS_AllOther_Season.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
+
+saveRDS(shippingbrickseason, "../Data_Processed/AIS_AllOther_Season.rds")
+
+writeRaster(fishingbrickseason, "../Data_Processed/AIS_Fishing_Season.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              zname="time", xname="lon",   yname="lat")
+
+saveRDS(fishingbrickseason, "../Data_Processed/AIS_Fishing_Season.rds")
+
+# Plot results
+# fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
+# colnames(fish.df) <- c("x","y","intensity")
+
+# Fun animation of the raster brick
+# animate(fishingbrick, pause=0.5, n=1)
+
+# Map of study area with bathymetric data 
+# ggplot() +
+#   geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+#   geom_raster(data=fish.df, aes(x=x, y=y, fill=intensity), alpha=0.9) +
+#   # geom_sf(data=aisbound_sf, fill=NA, color="blue" )+
+#   geom_sf(data=study, fill=NA, color="red") +
+#   scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
+
+```
+
+## AIS Data -- Proximity 
+
+```{r ais, warning=FALSE}
+
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
+aisbound_sp <- aisbound_sf %>% as("Spatial")
+
+# Land mask 
+land <- raster("../Data_Processed/Bathymetry.tif")
+land[values(land) > 0] <- 1
+land[values(land) < 0] <- NA
+
+# # Import ship data, create sf objects, combine into one sf object, and generate year value 
+# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
+# ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
+# ships <- do.call(rbind, ships) # Combine all ships into one sf object
+# ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+
+# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
+# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+
+# Then data were sent to AIS_Rasterization_SSLSubset_20210824.R (in Alaska Conservation AIS folder)
+
+# Import raster, reproject to 4336, and crop to study area
+fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Fishing")
+otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Other")
+cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Cargo")
+tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Tanker")
+
+# Create raster bricks for each ship type 
+fishingras <- lapply(fishinglist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+landcrop <- raster::resample(land, fishingras[[1]], method="ngb")
+
+# Set all values > 1 equal to 1
+ToOnes <- function(ras){
+  values(ras)[values(ras) > 0] <- 1
+  return(ras)
+}
+
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+
+
+start <- proc.time()
+# Loop through each season, aggregate rasters, mask out land, and calculate grid distance
+for(i in 1:length(unique(idx))){
+  print(i)
+  # Identify layers from the same season
+  layernums <- which(idx == unique(idx)[i])
+  # Combine them into the same raster brick
+  ras <- brick(fishingras[layernums])
+  seasonras <- sum(ras)
+  # Remove land 
+  masked <- raster::mask(seasonras, landcrop, maskvalue = 1)
+  # Convert all cells with any traffic to 1 
+  maskedbinary <- ToOnes(masked)
+  # Calculate distant to each "1" cell from each non-1 cell (and convert to km)
+  temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
+  
+  rasname <- unique(idx)[i]
+  writeRaster(temp, paste0("../Data_Processed/AIS/SeasonalFishDist_", i, "_", rasname,"_250m.tif"))
+}
+
+
+otherras <- lapply(otherlist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+cargoras <- lapply(cargolist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))}) 
+
+tankerras <- lapply(tankerlist, 
+                function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
+
+shippingras <- c()
+for(i in 1:92){
+  temp <- otherras[[i]] + cargoras[[i]] + tankerras[[i]]
+  shippingras <- c(shippingras, temp)
+}
+
+# Loop through each season, aggregate rasters, mask out land, and calculate grid distance
+for(i in 1:length(unique(idx))){
+  print(i)
+  # Identify layers from the same season
+  layernums <- which(idx == unique(idx)[i])
+  # Combine them into the same raster brick
+  ras <- brick(shippingras[layernums])
+  # Have to break up sum into two parts to minimize disk space
+  seasonras1 <- sum(ras[,,,1:5])
+  seasonras2 <- sum(ras[,,,6:nlayers(ras)])
+  seasonras <- sum(seasonras1, seasonras2)
+  # Remove land 
+  masked <- raster::mask(seasonras, landcrop, maskvalue = 1)
+  # Convert all cells with any traffic to 1 
+  maskedbinary <- ToOnes(masked)
+  # Calculate distant to each "1" cell from each non-1 cell (and convert to km)
+  temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
+  
+  rasname <- unique(idx)[i]
+  writeRaster(temp, paste0("../Data_Processed/AIS/SeasonalShipDist_", i, "_", rasname,"_250m.tif"))
+}
+
+(proc.time()-start)/60
+
+
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+```
+
+## Wind Speed 
+
+Wind speed data from the Copernicus Marine Service (Met-Op A and B satellites).
+
+Data set name: [GLOBAL OCEAN WIND L4 NEAR REAL TIME 6 HOURLY OBSERVATIONS](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=WIND_GLO_WIND_L4_NRT_OBSERVATIONS_012_004). 
+
+```{r wind speed}
+
+# Open netcdf file 
+wind <- nc_open("../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1626911972037.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_16269119720374.txt')
+  print(wind)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(wind, "lon")
+lat <- ncvar_get(wind, "lat", verbose = F)
+t <- ncvar_get(wind, "time")
+
+head(lon)
+
+# Read in data from the wind variable and verify the dimensions of the array
+wind.array <- ncvar_get(wind, "wind_speed") # 3dim array
+dim(wind.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(wind, "wind_speed","_FillValue")
+fillvalue
+
+wind.array[wind.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(wind)
+
+# Isolate and plot a random time step to check
+wind.slice <- wind.array[,,1]
+
+dim(wind.slice) #2dim
+
+wind.r <- raster(t(wind.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
+         flip(direction="y")%>%
+         raster::projectRaster(crs=prj)
+
+wind.df <- as.data.frame(wind.r, xy=TRUE) %>% drop_na()
+colnames(wind.df) <- c("x","y","windspeed")
+
+plot(wind.r)
+
+
+# Map of study area with wind data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=wind.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+
+test <- aperm(wind.array, c(2,1,3))
+# Make a raster brick of all values 
+wind_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) 
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t2 <- as.POSIXct("1900-01-01 00:00")+as.difftime(t,units="hours")
+
+idx <- getSeasonYear(t2)
+
+wind_brick_season <- raster::stackApply(wind_brick, idx, fun=mean )
+
+names(wind_brick_season) <- unique(idx)
+
+wind_brick_season <- raster::setZ(wind_brick_season, unique(idx))
+
+
+
+animate(wind_brick_season, pause=0.5, n=1)
+
+# plot monthly average wind data for November, 2018
+windweek.df <- as.data.frame(wind_brick_season[[1]], xy=TRUE)  %>% drop_na()
+colnames(windweek.df) <- c("x","y","windspeed")
+
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=windweek.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+# animate(wind_brick_season, pause=0.5, n=1)
+
+writeRaster(wind_brick_season, "../Data_Processed/wind_brick_season.tif", options="INTERLEAVE=BAND", overwrite=T)
+saveRDS(wind_brick_season, "../Data_Processed/wind_brick_season.rds")
+
+
+# Save output file
+# writeRaster(wind_week, "../Data_Processed/wind_weekly.nc",
+              # overwrite=TRUE, format="CDF",
+              # varname="wind_speed", varunit="m/s",
+              # longname="Wind Speed -- raster brick to netCDF",
+              # xname="lon",   yname="lat",zname="time",
+              # zunit="numeric")
+```
+
+## Sea Surface Temperature
+
+[OSTIA: Operational Sea Surface Temperature and Sea Ice Analysis](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001) from the Copernicus Marine Service. 
+
+Variables = analysed_sst, analysis_error, mask, sea_ice_fraction
+
+North = 62
+South = 56
+West = -155
+East = -143
+Start = 01 Nov 2018
+End = 31 July 2020
+
+```{r sea surface temperature}
+
+# Open netcdf file 
+sst <- nc_open("../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.txt')
+  print(sst)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(sst, "lon")
+lat <- ncvar_get(sst, "lat", verbose = F)
+t <- ncvar_get(sst, "time")
+
+head(lon)
+
+# Read in data from the SST variable and verify the dimensions of the array
+sst.array <- ncvar_get(sst, "analysed_sst") # 3dim array
+dim(sst.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(sst, "analysed_sst","_FillValue")
+fillvalue
+
+sst.array[sst.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(sst)
+
+# Conver from kelvin to celcius 
+sst.array <- sst.array - 273.15
+
+# Isolate and plot a random time step to check
+sst.slice <- sst.array[,,1]
+
+dim(sst.slice) #2dim
+
+sst.r <- raster(t(sst.slice), xmn=min(lon), xmx=max(lon), ymn=min(lat),ymx=max(lat),
+                # Found projection on the website
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>%
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>%
+         raster::crop(study)
+
+sst.df <- as.data.frame(sst.r, xy=TRUE) %>% drop_na()
+colnames(sst.df) <- c("x","y","sst")
+
+plot(sst.r)
+
+# Map of study area with sst data
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_raster(data=sst.df, aes(x=x, y=y, fill=sst), alpha=0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data=study, fill=NA, color="red")
+
+test <- aperm(sst.array, c(2,1,3))
+# Make a raster brick of all values 
+sst_brick <- brick(test, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
+                crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) %>% 
+         flip(direction="y") %>%
+         raster::projectRaster(crs=prj) %>% 
+         raster::crop(study)
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+
+t2 <- as.POSIXct("1981-01-01 00:00")+as.difftime(t,units="secs")
+
+idx <- getSeasonYear(t2)
+
+sst_brick_season <- raster::stackApply(sst_brick, idx, fun=mean )
+
+names(sst_brick_season) <- unique(idx)
+
+sst_brick_season <- raster::setZ(sst_brick_season, unique(idx))
+
+# animate(sst_season, pause=0.5, n=1)
+
+writeRaster(sst_brick_season, "../Data_Processed/sst_season.tif", options="INTERLEAVE=BAND", overwrite=T)
+saveRDS(sst_brick_season, "../Data_Processed/sst_season.rds")
+
+# writeRaster(sst_season, "../Data_Processed/sst_weekly.nc",
+#       overwrite=TRUE, format="CDF",
+#       varname="analysed_sst", varunit="m/s",
+#       longname="Sea Surface Temperature -- raster brick to netCDF",
+#       xname="lon",   yname="lat",zname="time",
+#       zunit="numeric")
+
+```
+
