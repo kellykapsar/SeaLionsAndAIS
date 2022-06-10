@@ -362,3 +362,55 @@ ssl3[,names(ssl3) != "deploy_id"] <- apply(ssl3[,names(ssl3) != "deploy_id"], 2,
 saveRDS(ssl3, "../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds")
 
 ```
+
+
+```{r testing contamination, eval=FALSE} 
+
+avail1 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_SpeedBuff_20211003.rds") 
+avail2 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_20kmBuff_20211003.rds") 
+avail3 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds") 
+
+contamination_calc <- function(usedandavail){
+    used1 <- usedandavail %>% 
+             filter(used==1) %>% 
+             dplyr::select(-used)
+    temp <- left_join(usedandavail, used1, by="choice_id") %>% filter(used==0) 
+    
+    sames <- temp %>% mutate(bathymetry = ifelse(bathymetry.x == bathymetry.y, 1, 0),
+                         dist_land = ifelse(dist_land.x == dist_land.y, 1, 0),
+                         dist_500m = ifelse(dist_500m.x == dist_500m.y, 1, 0),
+                         slope = ifelse(slope.x == slope.y, 1, 0),
+                         ship = ifelse(ship.x == ship.y, 1, 0),
+                         fish = ifelse(fish.x == fish.y, 1, 0),
+                         sst = ifelse(sst.x == sst.y, 1, 0),
+                         eke = ifelse(eke.x == eke.y, 1, 0),
+                         ssh = ifelse(ssh.x == ssh.y, 1, 0),
+                         wind = ifelse(wind.x == wind.y, 1, 0),
+                          ) %>% 
+                      dplyr::select(choice_id, bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind)
+
+     sames <- as.data.frame(apply(sames, 2, as.numeric))
+     grand_contamination <- round(apply(sames, 2, function(x){sum(x, na.rm=T)})/length(sames$choice_id), 2)
+     return(as.data.frame(grand_contamination))
+     #    
+     # contam <- sames %>% 
+     #            group_by(choice_id) %>%
+     #            summarize(Bathymetry_con=sum(Bathymetry)/5,
+     #                      dist_land_con=sum(dist_land)/5,
+     #                      dist_500m_con=sum(dist_500m)/5,
+     #                      slope_con=sum(slope)/5,
+     #                      ship_con=sum(ship)/5,
+     #                      fish_con=sum(fish)/5,
+     #                      sst_con=sum(sst)/5,
+     #                      eke_con=sum(eke)/5,
+     #                      ssh_con=sum(ssh)/5,
+     #                      wind_con=sum(wind)/5
+     #                      )
+
+}
+
+contamination <- cbind(contamination_calc(avail1), contamination_calc(avail2), contamination_calc(avail3)) 
+colnames(contamination) <- c("rad_spd", "rad_20km", "resamp_5km")
+
+
+```
