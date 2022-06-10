@@ -374,12 +374,12 @@ ggplot() +
 
 # animate(wind_brick_season, pause=0.5, n=1)
 
-writeRaster(wind_brick_season, "../Data_Processed/wind_brick_season.tif", options="INTERLEAVE=BAND", overwrite=T)
-saveRDS(wind_brick_season, "../Data_Processed/wind_brick_season.rds")
+writeRaster(wind_brick_season, "../Data_Processed/wind_season.tif", options="INTERLEAVE=BAND", overwrite=T)
+saveRDS(wind_brick_season, "../Data_Processed/wind_season.rds")
 
 
 # Save output file
-# writeRaster(wind_week, "../Data_Processed/wind_weekly.nc",
+# writeRaster(wind_week, "../Data_Processed/wind_season.nc",
               # overwrite=TRUE, format="CDF",
               # varname="wind_speed", varunit="m/s",
               # longname="Wind Speed -- raster brick to netCDF",
@@ -483,7 +483,7 @@ sst_brick_season <- raster::setZ(sst_brick_season, unique(idx))
 writeRaster(sst_brick_season, "../Data_Processed/sst_season.tif", options="INTERLEAVE=BAND", overwrite=T)
 saveRDS(sst_brick_season, "../Data_Processed/sst_season.rds")
 
-# writeRaster(sst_season, "../Data_Processed/sst_weekly.nc",
+# writeRaster(sst_season, "../Data_Processed/sst_season.nc",
 #       overwrite=TRUE, format="CDF",
 #       varname="analysed_sst", varunit="m/s",
 #       longname="Sea Surface Temperature -- raster brick to netCDF",
