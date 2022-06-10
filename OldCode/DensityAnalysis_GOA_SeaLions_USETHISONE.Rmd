@@ -1,0 +1,307 @@
+---
+title: "Shipping in Sea Lion Land"
+author: "Kelly Kapsar"
+date: "7/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Clear memory
+rm(list=ls())
+
+# Load libraries 
+library(dplyr)
+library(tidyr)
+library(raster)
+#library(sp)
+#library(rgdal)
+# library(RArcInfo)
+# library(tmap)
+# library(tmaptools)
+# library(nPacMaps)
+library(sf)
+library(kableExtra)
+library(rgeos)
+library(ggplot2) # Plotting tools
+library(scales) # Add commas to numbers in text output
+library(RColorBrewer)
+library(stars) # Spatiotemporal arrays: raster and vector datacubes 
+
+# Set working directory to file where this code is saved
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# file path to ais data
+path <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/4-ATBAComplianceAnalysis"
+
+# CRS 
+AA <- c("+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+
+
+```
+
+
+```{r Import data}
+# Import shipping data
+tank <- st_read(paste0(path,"/Data_Raw/Final_Tankers_scrambledMMSI_filtered_and_geomv2_revisedFeb17.shp"))
+carg1 <- st_read(paste0(path,"/Data_Raw/Final_cargo_mmsiscram_grosston400_part1.shp"))
+carg2 <- st_read(paste0(path,"/Data_Raw/Final_cargo_mmsiscram_grosston400_part2.shp"))
+carg3 <- st_read(paste0(path,"/Data_Raw/Final_cargo_mmsiscram_grosston400_part3.shp"))
+carg4 <- st_read(paste0(path,"/Data_Raw/Final_cargo_mmsiscram_grosston400_part4.shp"))
+carg5 <- st_read(paste0(path,"/Data_Raw/Final_cargo_mmsiscram_grosston400_part5_revisedFeb17.shp"))
+
+cargs <- rbind(carg1, carg2, carg3, carg4, carg5)
+colnames(cargs) <- colnames(tank)
+ships <- rbind(tank, cargs)
+
+ships <- st_transform(ships, 3338) # Alaska Albers
+
+```
+
+Create a subset of all the vessel track lines located within the Gulf of Alaska. 
+
+```{r Clipping polygon}
+#Create the clipping polygon for the study area
+#Lat/lon boundaries = -156, -144, 55, 62
+coords <- list(matrix(c(-156, 55, -156, 62, -144, 62, -144, 55, -156, 55), 
+                      ncol=2, byrow=TRUE))
+proj <- "+proj=latlong +datum=NAD83 +ellps=GRS80"
+CP <- st_sfc(st_polygon(coords), crs = proj)
+CP <- st_transform(CP, 3338)
+
+# st_write(CP,"CP.shp")
+
+#Crop vessel track lines to the extent of the study area
+ships$GOA <- ships %>% st_intersects(CP, sparse=FALSE)
+
+ships.GOA <- ships[ships$GOA==TRUE,] 
+
+
+# Manually crop each line
+# TAKES NEARLY 3 HOURS TO RUN
+# ships.GOA.test <- ships.GOA
+#   for(i in 1:length(ships.GOA$date)){
+#     print(i)
+#     c <- tryCatch(st_intersection(ships.GOA$geometry[i], CP), error=function(e)NULL)
+#     ships.GOA.test$geometry[i] <- c[1]
+#   }
+# 
+# saveRDS(ships.GOA.test, "ships_GOA_crop_inR.rds")
+
+ships.GOA.test <- readRDS("ships_GOA_crop_inR.rds")
+
+
+```
+
+```{r Blip removal}
+
+# This code removes erroneous "blips" in the AIS data by filtering based on the 
+# distance travelled between consecutive points in the dataset 
+
+ships.new <- ships.GOA
+altered <- c()
+checks <- c()
+too.short <- c()
+
+# Example outlier ships
+# which(ships.new$mmsiScram == 43500034210 & ships.new$date == 20140313)
+# i <- 2874
+
+# which(ships.new$mmsiScram == 24400034303 & ships.new$date == 20140706)
+# i <- 6549
+
+for(i in 1:length(ships.new$date)){
+  outliers <- c()
+  if(i %% 100 == 0){
+    print(i)
+  }
+  coords.old <- data.frame(st_coordinates(ships.new[i,])) 
+  
+  # Identify rows with consecutively the same coordinates
+  samesies <- coords.old[-1,c("X","Y")] == coords.old[1:length(coords.old[,1])-1,c("X","Y")]
+  
+  # Check for lines that are just two points and put on list to remove 
+  if(length(which(samesies[,"X"] == TRUE & samesies[,"Y"] == TRUE)) == length(coords.old$X) -2){ 
+    too.short <- c(too.short, i)
+    next 
+  }
+  
+  # Remove rows with consecutively the same coordinates 
+  to.remove <- which(samesies[,"X"] == TRUE & samesies[,"Y"] == TRUE)
+  ifelse(length(to.remove) > 0, 
+    coords <- coords.old[-which(samesies[,"X"] == TRUE & samesies[,"Y"] == TRUE),], 
+    coords <- coords.old)
+  
+  # Check for lines that are just two points and put on list to remove 
+  if(length(coords[,1]) <= 2){ 
+    too.short <- c(too.short, i)
+    next 
+  }
+  # find the x and y distances travelled between all coords
+  change <- diff(as.matrix(coords[,1:2]))
+  change <- change[,1:2]
+  # Remove points with 0 distance travelled 
+  #change <- change[-which(change[,1] == 0 & change[,2] == 0),]
+  
+  # Points that are more than 100 km in the y direction from the next point
+  # Add one to the value to determine the point at which the change occurred,
+  # instead of the line segment number of the change 
+  outliers <- which(abs(change[,1]) > 100000 | abs(change[,2]) > 100000) + 1 
+  # Check if outlier point is at beginning of line
+  if(length(outliers) > 0){
+    if(any(outliers == 2)){
+      coords <- coords[-1,]
+      outliers <- outliers[-1]
+      altered <- c(altered,i)
+    }
+    # Check if outlier point is at end of line
+    if(any(outliers == length(coords[,1])-1)){
+      coords <- coords[-(outliers[length(outliers)]+1),]
+      outliers <- outliers[-length(outliers)]
+      altered <- c(altered,i)
+    }
+    # Check for sequential large changes in x or y coords
+    if(any(intersect(outliers-1, outliers))){
+      # Checking for outliers in two consecutive points
+      outlier.pt <- intersect(outliers-1, outliers) 
+      # Remove only the outlier and not the point after it...
+      coords <- coords[-outlier.pt,] 
+      # Re-integrate points
+      coords.sf <- st_multipoint(as.matrix(coords[,1:2])) 
+      # Convert into line
+      line.sf <- st_cast(coords.sf, "LINESTRING", )
+      # Replace old geometry with new line
+      ships.new$geometry[i] <- line.sf 
+      # Add to a list of altered lines
+      altered <- c(altered,i)  
+      # Remove outliers from list of outliers
+      outliers <- outliers[-which(outliers %in% c(outlier.pt, outlier.pt+1))] 
+    }
+  }
+}
+
+# Drop extra dimension in the line data 
+# ships.GOA <- st_zm(ships.new)
+
+st_write(ships.new, "ships_GOA.shp")
+
+```
+
+
+```{r Fixing invalid geometries}
+
+# Having some problems with non-noded intersection geometries
+# I think they're mostly from ships that are in the Port of Anchorage 
+# Possibly I can create a new field for daily transit segments that uses the total 
+# area covered for the day to determine whether the ships are stopped or in transit
+# Could do this by determining the size extent of the bounding box for their daily 
+# transit segments and then filtering by total area
+# Or I could look at the total distance travelled by day and filter that way. 
+
+# Ended up doing a workaround by going through QGIS and having it ignore invalid geometries
+# There were 7 such segments. I just dropped them from the data set. 
+ships.GOA.crop <- st_read("ships_GOA_crop.shp")
+
+ships.GOA.crop$seglength <- as.numeric(st_length(ships.GOA.crop$geometry)/1000) # length in km 
+hist(ships.GOA.crop$seglength)
+summary(ships.GOA.crop$seglength)
+boxplot(ships.GOA.crop$seglength)
+ 
+ships.GOA.crop$isValid <- st_is_valid(ships.GOA.crop)
+sum(ships.GOA.crop$isValid)/length(ships.GOA.crop$date)
+
+ships.GOA.crop$isSimple <- st_is_simple(ships.GOA.crop)
+sum(ships.GOA.crop$isSimple)/length(ships.GOA.crop$date)
+
+
+
+```
+```{r}
+#Create a grid over the study area
+CP.grid.25 <- st_make_grid(CP, cellsize=25000, #I think this cell size is 25 sq skm 
+                                 crs = 3338, what = 'polygons') %>%
+  st_sf('geometry' = ., data.frame('ID' = 1:length(.)))
+
+CP.grid.5 <- st_make_grid(CP, cellsize=5000, #I think this cell size is 25 sq skm 
+                                 crs = 3338, what = 'polygons') %>%
+  st_sf('geometry' = ., data.frame('ID' = 1:length(.)))
+
+CP.ras.25 <- raster(CP.grid.25)
+```
+
+Create basemap for study area 
+```{r Basemap creation and initial maps}
+BBmap <- st_read("C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/4-ATBAComplianceAnalysis/Data_Raw/BBmap.shp") %>% 
+  st_transform(3338) %>% st_buffer(0)
+
+CP.buff <- st_buffer(CP, 10000) # Buffer study area by 10 km
+
+BBmap.crop <- st_crop(BBmap, CP.buff)
+
+# This seems to rasterize based on gross tonnage. How to rasterize based on length? 
+# Possibly: https://gis.stackexchange.com/questions/119993/convert-line-shapefile-to-raster-value-total-length-of-lines-within-cell
+# Also, explanation of stars package (w/ st_rasterize function): 
+# https://r-spatial.github.io/stars/
+
+# Can't figure out how to get the st_rasterize function to calculate the total length of 
+# lines in the cell. It appears to only be able to take the first attribute value... 
+# ships.GOA.crop.ras <- ships.GOA.crop %>% st_rasterize(fun="length") %>% st_crop(CP)
+
+# Going to convert to an SP object instead and use sp and raster packages. 
+#Pre-set intensity values
+
+start_time <- Sys.time()
+CP.grid.25$intensity.all <- -999
+
+for(i in 1:length(CP.grid.25$intensity.all)){
+    c <- st_intersection(ships.GOA.test, CP.grid.25$geometry[i])
+    CP.grid.25$intensity.all[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+end_time <- Sys.time()
+
+print(paste0((end_time - start_time)/60, "= for loop method run time (minutes)"))
+
+
+start_time <- Sys.time()
+CP.grid.25$intensity.all.apply <- lapply(1:nrow(CP.grid.25), 
+      function(i){sum(st_length(st_intersection(ships.GOA.test, CP.grid.25$geometry[i])))})
+end_time <- Sys.time()
+
+print(paste0((end_time - start_time)/60, "= apply method run time (minutes)"))
+
+# Maybe can be done without a for loop? 
+# Nope, just gives the total number of m travelled in the whole study area and repeats it 929 times.... 
+ # CP.grid.25$intensity.all.v2 <-  
+ #   sum(st_length(st_intersection(ships.GOA.test, CP.grid.25$geometry)))
+
+CP.grid.25$intensity.all.log <- log(CP.grid.25$intensity.all)
+
+ggplot() + 
+  geom_sf(data=BBmap.crop, fill="darkgray",color="darkgray") +
+  geom_sf(data=CP.grid.25[929], color="red", aes(fill=intensity.all.log)) 
+  #geom_sf(data=CP.grid.5, color="blue", fill=NA) +
+  # geom_raster()
+  #  geom_sf(data=ships.GOA[1:20,], color="pink", lwd=0.5) +
+  # geom_sf(data=ships.GOA.test, color="purple", lwd=0.5)
+  # geom_stars(data= ships.GOA.crop.ras) 
+  #geom_stars(data= ships.GOA.crop.ras)
+  
+
+plot(ships.GOA.crop[590,])
+
+st_is_valid(ships.GOA.crop[590,])
+
+st_crop(ships.GOA.crop$geometry[590], CP)
+
+plot(st_buffer(ships.GOA.crop$geometry[1],0))
+
+st_crs(ships.GOA.crop) == st_crs(CP)
+
+length(which(CP.grid.25$intensity.all[1:10] == CP.grid.25$intensity.all.v2[1:10]))
+
+```
+
+

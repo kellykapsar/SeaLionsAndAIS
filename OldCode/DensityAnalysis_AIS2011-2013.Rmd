@@ -1,0 +1,740 @@
+---
+title: "AIS 2011-2013 Density Analysis: Bering Strait Subset""
+author: "Kelly Kapsar"
+date: "March 6, 2018"
+output: html_document
+---
+
+Import libraries. 
+
+```{r include=FALSE}
+library(knitr)
+library(raster)
+library(sp)
+library(rgdal)
+library(raster)
+library(RArcInfo)
+library(tmap)
+library(tmaptools)
+library(nPacMaps)
+library(tidyverse)
+library(sf)
+library(kableExtra)
+library(rgeos)
+
+```
+
+Relevant functions. 
+
+```{r}
+###################### Multiplot function ###################### 
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+Location to save plots. 
+
+```{r}
+path <- "C:/Users/Kelly Kapsar/Documents/MSU/Conferences/USIALE 2018/Figures/"
+```
+
+Upload merged ais data file with vessel attributes and sea ice concentration raster file. 
+
+```{r}
+ais <- read_sf("C:/Users/Kelly Kapsar/Documents/MSU/Data/SNAP_AIS/WorkingFiles/ais.shp")
+icecon <- raster("C:/Users/Kelly Kapsar/Documents/MSU/Data/NSIDC_GO2135_20180218/N_20100101_concentration_v3.0.tif")
+#ais.bssub <- read_sf("C:/Users/Kelly Kapsar/Documents/MSU/Data/SNAP_AIS/WorkingFiles/aisbssub.shp")
+EPSG <- make_EPSG()
+```
+
+Ensure all data have the correct datum and projection. 
+
+```{r}
+#AIS DATA CRS == epsg:6393 NAD83(2011) / Alaska Albers  "+init=epsg:6393"
+AKAlbers <- "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+
+#Assure the same crs for all data
+ais <- st_transform(ais, AKAlbers)
+extent <- c(-3575120, -1190480, 699280, 3775120)
+icecon_crop <- crop(icecon, extent)
+icecon_proj <- projectRaster(icecon_crop, crs = AKAlbers)
+```
+
+Create a subset of all the vessel track lines located within the Bering Strait region. 
+
+```{r}
+#Create the clipping polygon for the study area
+#Lat/lon boundaries = 172, -157, 60, 66
+coords <- list(matrix(c(172, 60, 172, 66, -157, 66, -157, 60, 172, 60), ncol=2, byrow=TRUE))
+proj <- "+proj=latlong +datum=NAD83 +ellps=GRS80"
+CP <- st_sfc(st_polygon(coords), crs = proj)
+CP <- st_transform(CP, AKAlbers)
+
+#Crop vessel track lines to the extent of the study area
+ais.bssub <- st_intersection(ais, CP)
+
+```
+
+Create full and cropped basemaps for vessel traffic. 
+
+```{r}
+BBmap <- nPacMaps::bering()
+BBmap <- st_transform(BBmap, AKAlbers)
+
+
+crop_custom <- function(poly.sf, cropper) {
+  poly.sp <- as(poly.sf, "Spatial")
+  poly.sp <- gBuffer(poly.sp, byid=TRUE, width=0)
+  cropper.sp <- as(cropper, "Spatial")
+  poly.sp.crop <- crop(poly.sp, extent(cropper.sp))
+  st_as_sf(poly.sp.crop)
+}
+
+CP.buff <- st_as_sf(gBuffer(as(CP, "Spatial"), width=1000))
+
+BBmap.crop <- crop_custom(BBmap, CP)
+
+```
+
+Create a grid over marine space in the study area. 
+
+```{r}
+#Create a grid over the study area
+CP_grid <- st_make_grid(CP, cellsize=25000, #I think this cell size is 25 sq skm 
+                                 crs = AKAlbers, what = 'polygons') %>%
+  st_sf('geometry' = ., data.frame('ID' = 1:length(.)))
+
+
+#Remove land pixels from ice concentration raster 
+land.mask <- mask(icecon_proj, icecon_proj < 1000, maskvalue=FALSE)
+
+#Create a list with the average ice concentration value for all cells in the CP grid
+#(Do this because one CP grid cell overlaps several different ice concentration raster pixels)
+ice <- c()
+for(i in 1:length(CP_grid$geometry)){
+  ice_val <- raster::extract(land.mask, as_Spatial(CP_grid$geometry[i]))
+  ifelse(anyNA(ice_val[[1]]), ice <- c(ice, NA), ice <- c(ice, mean(ice_val[[1]])))
+} 
+land.mask
+#Convert to percentages (for some reason they're originally out of 1000?)
+ice <- ice/10
+
+#Add that list as an attribute of the CP grid
+CP_grid$ice <- ice
+
+#NA values indicate pixels with land in them 
+land.pix <- which(is.na(CP_grid$ice))
+CP_grid <- CP_grid[-land.pix,]
+
+#Remove pixels outside of the study area 
+out <- c()
+for(i in 1:length(CP_grid$geometry)){
+  if(st_contains(CP, CP_grid$geometry[i], sparse=F)==F){
+    out <- c(out, i)
+  }
+}
+CP_grid <- CP_grid[-out,]
+
+```
+
+Vessel traffic intensity calculations. 
+
+```{r, include=FALSE}
+
+#Pre-set intensity values 
+CP_grid$intensity.all <- -999
+
+for(i in 1:length(CP_grid$intensity.all)){
+    #print(i)
+    c <- st_intersection(ais.bssub, CP_grid$geometry[i])
+    CP_grid$intensity.all[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+```
+
+Categorize vessels into functional categories (sending/receiving/spillover/local). 
+
+```{r}
+
+#Collect starting/ending coordinates for each line
+start.pts <- data.frame(lat = ais.bssub$lat_bgn, lon = ais.bssub$lon_bgn)
+start.dat <- st_as_sf(start.pts, coords = c("lon", "lat"), crs = "+proj=longlat")
+start.dat <- st_transform(start.dat, st_crs(ais.bssub)) 
+
+end.pts <- data.frame(lat = ais.bssub$lat_end, lon = ais.bssub$lon_end)
+end.dat <- st_as_sf(end.pts, coords = c("lon", "lat"), crs= "+proj=longlat")
+end.dat <- st_transform(end.dat, st_crs(ais.bssub))
+
+all.pts <- rbind(start.pts, end.pts)
+all.dat <- st_as_sf(all.pts, coords = c("lon", "lat"), crs = "+proj=longlat")
+all.dat <- st_transform(all.dat, st_crs(ais.bssub)) 
+
+
+#Tells whether starting and ending points are inside or outside of the study area 
+tele <- c()
+for(i in 1:length(ais.bssub$geometry)){
+  #print(i)
+  ifelse(st_contains(CP, start.dat$geometry[i], sparse=F) & 
+           st_contains(CP, end.dat$geometry[i], sparse=F), 
+    tele <- c(tele,"intra"), 
+    ifelse(st_contains(CP, start.dat$geometry[i], sparse=F) & 
+             st_contains(CP, end.dat$geometry[i], sparse=F)==F, 
+      tele <- c(tele,"send"), 
+      ifelse(st_contains(CP, start.dat$geometry[i], sparse=F)==F & 
+               st_contains(CP, end.dat$geometry[i], sparse=F),
+        tele <- c(tele,"receive"), 
+        ifelse(st_contains(CP, start.dat$geometry[i], sparse=F)==F & 
+                 st_contains(CP, end.dat$geometry[i], sparse=F)==F,
+          tele <- c(tele, "trans"), tele <- c(tele, "WTF")))))
+}
+ais.bssub$tele <- tele
+
+```
+
+Calculate the proportion of vessels in 2011 and 2012 from each vessel type and functional category. 
+
+```{r}
+
+#Remove years with incomplete data (.mid indicates only 2011 and 2012 track lines)
+ais.bssub.mid <- ais.bssub[which(ais.bssub$year != 2010 & ais.bssub$year != 2013),]
+
+
+#Calculate intensity for just 2011 and 2012 (removing incomplete years)
+CP_grid$intensity.mid <- -999 #.mid = for only 2011 and 2012 years 
+
+for(i in 1:length(CP_grid$intensity.mid)){
+    #print(i)
+    c <- st_intersection(ais.bssub.mid, CP_grid$geometry[i])
+    CP_grid$intensity[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+#Subset data by functional type 
+intra <- ais.bssub[which(ais.bssub$tele == "intra"),]
+send <- ais.bssub[which(ais.bssub$tele == "send"),]
+receive <- ais.bssub[which(ais.bssub$tele == "receive"),]
+trans <- ais.bssub[which(ais.bssub$tele == "trans"),]
+
+intra.mid <- ais.bssub.mid[which(ais.bssub.mid$tele == "intra"),]
+send.mid <- ais.bssub.mid[which(ais.bssub.mid$tele == "send"),]
+receive.mid <- ais.bssub.mid[which(ais.bssub.mid$tele == "receive"),]
+trans.mid <- ais.bssub.mid[which(ais.bssub.mid$tele == "trans"),]
+
+#Count frequency of vessels for each functional type 
+types <- c(unique(ais.bssub.mid$ShptyL2))
+func <- c("intra", "send", "receive", "trans")
+
+#Need to figure out how to pre-specify column names in the dataframe 
+
+df <- setNames(data.frame(matrix(ncol = length(unique(send$ShptyL2)), nrow = length(func))), c(unique(send$ShptyL2)))
+row.names(df) <- c(func)
+
+#Couldn't figure out the code-efficient way to populate the dataframe, so I'm just going to spell it out
+
+#One way I tried to loop through and generate the values
+#for(f in func){ 
+#  for(i in types){
+#    l <- length(f$ShptyL2[which(f$ShptyL2 == i)])
+#    df[f, i] <- l
+#  }
+#}
+
+#a second way was to aggregate them and then append
+#df.ag <- aggregate(x = send, by = list(unique.values = send$ShptyL2), FUN = length)
+
+#Manual, brute force way
+df["send","Fishing"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Fishing")])
+df["send","Offshore"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Offshore")])
+df["send","Tankers"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Tankers")])
+df["send","Miscellaneous"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Miscellaneous")])
+df["send","Bulk Carriers"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Bulk Carriers")])
+df["send","Dry Cargo/Passenger"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Dry Cargo/Passenger")])
+df["send","Non-Merchant Ships"] <- length(send.mid$ShptyL2[which(send.mid$ShptyL2 == "Non-Merchant Ships")])
+
+df["receive","Fishing"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Fishing")])
+df["receive","Offshore"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Offshore")])
+df["receive","Tankers"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Tankers")])
+df["receive","Miscellaneous"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Miscellaneous")])
+df["receive","Bulk Carriers"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Bulk Carriers")])
+df["receive","Dry Cargo/Passenger"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Dry Cargo/Passenger")])
+df["receive","Non-Merchant Ships"] <- length(receive.mid$ShptyL2[which(receive.mid$ShptyL2 == "Non-Merchant Ships")])
+
+df["trans","Fishing"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Fishing")])
+df["trans","Offshore"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Offshore")])
+df["trans","Tankers"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Tankers")])
+df["trans","Miscellaneous"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Miscellaneous")])
+df["trans","Bulk Carriers"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Bulk Carriers")])
+df["trans","Dry Cargo/Passenger"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Dry Cargo/Passenger")])
+df["trans","Non-Merchant Ships"] <- length(trans.mid$ShptyL2[which(trans.mid$ShptyL2 == "Non-Merchant Ships")])
+
+df["intra","Fishing"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Fishing")])
+df["intra","Offshore"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Offshore")])
+df["intra","Tankers"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Tankers")])
+df["intra","Miscellaneous"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Miscellaneous")])
+df["intra","Bulk Carriers"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Bulk Carriers")])
+df["intra","Dry Cargo/Passenger"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Dry Cargo/Passenger")])
+df["intra","Non-Merchant Ships"] <- length(intra.mid$ShptyL2[which(intra.mid$ShptyL2 == "Non-Merchant Ships")])
+
+table <- kable(df, "html") %>% kable_styling()
+table
+
+
+
+df2 <- setNames(data.frame(matrix(ncol = 2, nrow = 2)), c("2011", "2012"))
+row.names(df2) <- c("Total Distance Travelled (km)", "Total Number of ships")
+
+
+df2["Total Distance Travelled (km)","2011"] <- sum(st_length(ais.bssub.mid[which(ais.bssub.mid$year == 2011),]))/1000
+df2["Total Distance Travelled (km)","2012"] <- sum(st_length(ais.bssub.mid[which(ais.bssub.mid$year == 2012),]))/1000
+df2["Total Number of ships","2011"] <- length(ais.bssub.mid$year[which(ais.bssub.mid$year == 2011)])
+df2["Total Number of ships","2012"] <- length(ais.bssub.mid$year[which(ais.bssub.mid$year == 2012)])
+
+table2 <- kable(df2, "html") %>% kable_styling()
+table2
+```
+
+Calculate intensity for functional and categorical typologies to the CP Grid. 
+
+```{r}
+
+############################## Functional Typology ############################## 
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(send.mid, CP_grid$geometry[i])
+    CP_grid$intensity_send.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(receive.mid, CP_grid$geometry[i])
+    CP_grid$intensity_receive.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(intra.mid, CP_grid$geometry[i])
+    CP_grid$intensity_intra.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(trans.mid, CP_grid$geometry[i])
+    CP_grid$intensity_trans.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+############################## Categorical Typology ############################## 
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Bulk Carriers"),], CP_grid$geometry[i])
+    CP_grid$intensity_bulkc.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Offshore"),], CP_grid$geometry[i])
+    CP_grid$intensity_offshore.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Tankers"),], CP_grid$geometry[i])
+    CP_grid$intensity_tankers.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Miscellaneous"),], CP_grid$geometry[i])
+    CP_grid$intensity_miscellaneous.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Fishing"),], CP_grid$geometry[i])
+    CP_grid$intensity_fishing.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Dry Cargo/Passenger"),], CP_grid$geometry[i])
+    CP_grid$intensity_drycpass.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub.mid[which(ais.bssub.mid$ShptyL2 == "Non-Merchant Ships"),], CP_grid$geometry[i])
+    CP_grid$intensity_nonmerchant.mid[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+############################## Separated by Year ############################## 
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub[which(ais.bssub$year == 2011),], CP_grid$geometry[i])
+    CP_grid$intensity_2011[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub[which(ais.bssub$year == 2012),], CP_grid$geometry[i])
+    CP_grid$intensity_2012[i] <-  sum(st_length(c$geometry)) #Total m travelled within that cell during the study period
+}
+
+############################## Proportion of Total Traffic ############################## 
+#2011 proportional intensity
+total2011 <- sum(st_length(ais.bssub.mid$geometry[which(ais.bssub.mid$year == 2011)]))
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub[which(ais.bssub$year == 2011),], CP_grid$geometry[i])
+    CP_grid$prop_intensity_2011[i] <-  sum(st_length(c$geometry))/total2011 
+}
+
+
+sum(CP_grid$prop_intensity_2011) #Not 1 bc of land excluded pixels
+
+#2012 proportional intensity 
+total2012 <- sum(st_length(ais.bssub.mid$geometry[which(ais.bssub.mid$year == 2012)]))
+
+for(i in 1:length(CP_grid$intensity)){
+    print(i)
+    c <- st_intersection(ais.bssub[which(ais.bssub$year == 2012),], CP_grid$geometry[i])
+    CP_grid$prop_intensity_2012[i] <-  sum(st_length(c$geometry))/total2012 
+}
+
+
+sum(CP_grid$prop_intensity_2012) #Not 1 bc of land excluded pixels
+
+
+#Change in proportional intensity 2011-2012
+
+CP_grid$prop_intensity_change <- CP_grid$prop_intensity_2012 - CP_grid$prop_intensity_2011
+
+```
+
+Standardize intensity values to km (from m).
+
+```{r}
+
+CP_grid$intensity.mid.km <- CP_grid$intensity.mid/1000
+CP_grid$intensity_2011.km <- CP_grid$intensity_2011/1000
+CP_grid$intensity_2012.km <- CP_grid$intensity_2012/1000
+CP_grid$intensity_bulkc.mid.km <- CP_grid$intensity_bulkc.mid/1000
+CP_grid$intensity_drycpass.mid.km <- CP_grid$intensity_drycpass.mid/1000
+CP_grid$intensity_fishing.mid.km <- CP_grid$intensity_fishing.mid/1000
+CP_grid$intensity_intra.mid.km <- CP_grid$intensity_intra.mid/1000
+CP_grid$intensity_miscellaneous.mid.km <- CP_grid$intensity_miscellaneous.mid/1000
+CP_grid$intensity_nonmerchant.mid.km <- CP_grid$intensity_nonmerchant.mid/1000
+CP_grid$intensity_offshore.mid.km <- CP_grid$intensity_receive.mid/1000
+CP_grid$intensity_receive.mid.km <- CP_grid$intensity_receive.mid/1000
+CP_grid$intensity_send.mid.km <- CP_grid$intensity_send.mid/1000
+CP_grid$intensity_tankers.mid.km <- CP_grid$intensity_tankers.mid/1000
+CP_grid$intensity_trans.mid.km <- CP_grid$intensity_trans.mid/1000
+
+```
+
+Save data! 
+
+```{r}
+write_sf(ais.bssub, "aisbssub.shp")
+write_sf(CP_grid, "CP_grid.shp")
+```
+
+Number of ships by week of year. 
+
+```{r}
+
+ggplot(ais.bssub, aes(week)) + 
+  geom_bar(aes(fill = year), position = "dodge") +
+  labs(x="Week of year", y="Number of ships")
+  
+ggsave(paste(path,"WeekHistByYearAll",plt,".png", sep=""), plot=last_plot(), width=8, height=4)
+
+
+ggplot(ais.bssub.mid, aes(week)) + 
+  geom_bar(aes(fill = year), position = "dodge") +
+  labs(x="Week of year", y="Number of ships", fill="Year")
+  
+ggsave(paste(path,"WeekHistByYear1112",plt,".png", sep=""), plot=last_plot(), width=8, height=4)
+
+ggplot(ais.bssub.mid[which(ais.bssub.mid$year == 2011),], aes(week)) + 
+  geom_bar(aes(fill = ShptyL2)) +
+  labs(x="Week of year", y="Number of ships", fill="Ship Type")
+  
+ggsave(paste(path,"WeekHistByCat11",plt,".png", sep=""), plot=last_plot(), width=8, height=4)
+
+```
+
+Histograms for vessel intensity by functional and categorical typologies. 
+
+```{r}
+
+nm.func <- c("CP_grid$intensity_send.mid.km", "CP_grid$intensity_intra.mid.km", "CP_grid$intensity_receive.mid.km", "CP_grid$intensity_trans.mid.km")
+xlabs.func <- c("Outbound Vessel Intensity", "Inbound Vessel Intensity","Local Vessel Intensity","Transient Vessel Intensity")
+
+nm.cat <- c("CP_grid$intensity_bulkc.mid.km","CP_grid$intensity_drycpass.mid.km", "CP_grid$intensity_fishing.mid.km", "CP_grid$intensity_offshore.mid.km", "CP_grid$intensity_nonmerchant.mid.km", "CP_grid$intensity_tankers.mid.km", "CP_grid$intensity_miscellaneous.mid.km")
+xlabs.cat <- c("Bulk Carrier Intensity", "Dry Cargo/Passenger Intensity","Fishing Vessel Intensity","Offshore Intensity", "Non-merchant Vessel Intensity", "Tanker Vessel Intensity","Miscellaneous Vessel Intensity")
+
+#Create histograms for functional vessel intensities 
+for(i in 1:length(nm.func)){
+  #Convert variable for dataframe to make ggplot happy 
+  dt <- data.frame(d = eval(parse(text=nm.func[i])))
+  #Specify file path for graphical output
+  #mypath <- file.path("C:/Users/Kelly Kapsar/Documents/MSU/Classes/Adv. Quantitative Methods in Geography/Exercise2",paste(nm[i],".png",sep=""))
+  
+  p <- ggplot(dt, aes(d)) +
+        geom_histogram(bins = 15) +
+        #ggtitle(titles[i]) +
+        labs(x=xlabs.func[i], y="Number of cells")
+        #theme(plot.title = element_text(hjust = 0.5))
+  #ggsave(mypath, plot = last_plot())
+  plt <- paste("p",i,sep="")
+  assign(plt, p)
+  plt
+  ggsave(paste(path,"FuncHists",plt,".png", sep=""), plot=last_plot())
+}
+
+
+#Create histograms for categorical vessel intensities
+for(i in 1:length(nm.cat)){
+  #Convert variable for dataframe to make ggplot happy 
+  dt <- data.frame(d = eval(parse(text=nm.cat[i])))
+  #Specify file path for graphical output
+  #mypath <- file.path("C:/Users/Kelly Kapsar/Documents/MSU/Classes/Adv. Quantitative Methods in Geography/Exercise2",paste(nm[i],".png",sep=""))
+  
+  p <- ggplot(dt, aes(d)) +
+        geom_histogram(bins = 15) +
+        #ggtitle(titles[i]) +
+        labs(x=xlabs.cat[i], y="Number of cells")
+        #theme(plot.title = element_text(hjust = 0.5))
+  #ggsave(mypath, plot = last_plot())
+  plt <- paste("p",i,sep="")
+  assign(plt, p)
+  plt
+  ggsave(paste(path,"CatHists",plt,".png", sep=""), plot=last_plot())
+}
+
+```
+
+Intensity Maps
+
+```{r}
+
+pos = c(0.1,0.68)
+
+#Create intensity map for all 2011 vessels 
+inten2011 <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) + 
+  tm_polygons(c("intensity_2011.km"), title="Vessel Traffic Intensity (km) - 2011") + 
+  tm_legend(position=pos) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(inten2011, paste(path,"Inten2011.png", sep=""))
+
+
+#Create intensity map for all 2012 vessels 
+inten2012 <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) + 
+  tm_polygons(c("intensity_2012.km"), title="Vessel Traffic Intensity (km) - 2012") + 
+  tm_legend(position=pos) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(inten2012, paste(path,"Inten2012.png", sep=""))
+
+
+#Create intensity map for proportion of vessel traffic in each cell in 2011 
+propinten2011 <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) + 
+  tm_polygons(c("prop_intensity_2011"), title="Vessel Traffic Intensity \n(proportional) - 2011") + 
+  tm_legend(position=pos) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(propinten2011, paste(path,"propinten2011.png", sep=""))
+
+
+#Create intensity map for proportion of vessel traffic in each cell in 2012 
+propinten2012 <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) + 
+  tm_polygons(c("prop_intensity_2012"), title="Vessel Traffic Intensity \n(proportional) - 2012") + 
+  tm_legend(position=pos) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(propinten2012, paste(path,"propinten2012.png", sep=""))
+
+
+#Create intensity map for change in proportion of vessel traffic in each cell from 2011 to 2012 
+propintenchange <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) + 
+  tm_polygons(c("prop_intensity_change"), title="Change in Vessel Traffic Intensity \n(proportional) \n2011- 2012") + 
+  tm_legend(position=c(pos)) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(propintenchange, paste(path,"propintenchange.png", sep=""))
+
+
+#Create intensity maps for all vessel categories 
+for(i in 1:length(nm.cat)){
+  p <- tm_shape(BBmap.crop) + 
+    tm_polygons(palette="Greys") + 
+    tm_shape(CP_grid) + 
+    tm_polygons(substring(nm.cat[i],9), title=xlabs.cat[i]) +
+    tm_legend(position=pos) +
+    tm_scale_bar(position=c("left","bottom"))
+  
+  plt <- paste("p",i,sep="")
+  assign(plt, p)
+  
+  save_tmap(p, paste(path,"CatIntenMaps",plt,".png", sep=""))
+}
+
+
+#Create intensity maps for all vessel functional categories 
+for(i in 1:length(nm.func)){
+  p <- tm_shape(BBmap.crop) + 
+    tm_polygons(palette="Greys") + 
+    tm_shape(CP_grid) + 
+    tm_polygons(substring(nm.func[i],9), title=xlabs.func[i]) +
+    tm_legend(position=pos) +
+    tm_scale_bar(position=c("left","bottom"))
+  
+  plt <- paste("p",i,sep="")
+  assign(plt, p)
+  
+  save_tmap(p, paste(path,"FuncIntenMaps",plt,".png", sep=""))
+}
+
+```
+
+
+Base Maps of Study Area 
+
+```{r}
+
+#Base map showing study area 
+CP_grid$zeros <- 0
+
+study.area <- tm_shape(BBmap) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) +
+  tm_polygons("zeros") +
+  tm_legend(show=FALSE) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(study.area, paste(path,"StudyArea.png", sep=""))
+
+#How to crop the map? 
+study.area.zoom <- tm_shape(BBmap.crop) + 
+  tm_polygons(palette="Greys") + 
+  tm_shape(CP_grid) +
+  tm_polygons("zeros") +
+  tm_legend(show=FALSE) +
+  tm_scale_bar(position=c("left","bottom"))
+
+save_tmap(study.area, paste(path,"StudyAreaZoom.png", sep=""))
+
+```
+
+Random extra code. 
+
+```{r}
+
+#More plotting
+
+plot(BeringBase)
+plot(start.dat$geometry[400], col="green", pch=19, cex=3, add=T)
+plot(local$geometry[400], col="purple", lwd= 3, add=T)
+plot(end.dat$geometry[400], col="red", pch=19, cex=3, add=T)
+plot(CP, add=T)
+
+plot(BeringBase)
+plot(ais.bssub$geometry[400], col="red", lwd= 3, add=T)
+plot(ais.bssub$geometry[which(ais.bssub$MMSI_x == local$MMSI_x[400])], col="green", lwd= 3, add=T)
+plot(CP, add=T)
+
+library(rgeos)
+library(ggplot2)
+
+
+plot(BBmap.crop, col="darkseagreen")
+plot(local$geometry[which(local$ShptyL2 == "Fishing")], add=T)
+
+unique(local$ShptyL2)
+
+
+CP_grid$intensity_2011.km
+
+##########################################################################
+
+#For some reason r has an issue with plotting the sf grid over a raster
+#It plots the sf lines just fine over the raster, but not the grid
+#It will also plot the geometry of the grid over the top, just not the 
+#attributes of the grid 
+plot(icecon_proj)
+plot(CP_grid$geometry, add=T)
+
+plot(CP_grid["intensity"], add=T)
+plot(ais.bssub$geometry, add=T)
+
+
+
+xyz <- c(0,1,2,NA)
+anyNA(xyz)
+
+ice_val[1]
+
+plot(icecon_proj[is.na(values(icecon_proj))])
+
+plot(icecon_proj, colNA="black")
+
+plot(land.mask)
+#plot(ais.bssub$geometry, add=T)
+plot(CP_grid$geometry[1000], add=T)
+```
+
+
+

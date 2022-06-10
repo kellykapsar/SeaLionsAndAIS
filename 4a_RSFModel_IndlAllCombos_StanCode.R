@@ -15,8 +15,7 @@ library(rstan)
 datestr <- format(Sys.time(), "%Y-%m-%d")
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
 workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
-resultdir <- paste("Results/SSL_IndlAllCombos_",
-                   datestr, "/", sep = "")
+resultdir <- "Results/SSL_IndlAllCombos_2022-03-13/"
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
        dir.create(file.path(workdir, resultdir)), FALSE)

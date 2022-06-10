@@ -1,6 +1,13 @@
 ################################################################################
-# TITLE: Steller sea lion resource selection model fitting 
-
+# TITLE: Individual Missouri elk resource selection function analysis: Step 6 -
+#   code for model checking
+# PURPOSE: Checking the convergence of the models, validating the models, and 
+#   comparing models, creating output for determining which models need to be
+#   run longer, which are bogus (e.g., if there is no RX fire in any of used or
+#   available, shouldn't even be in model)
+# AUTHOR: Kyle Redilla, RECaP Lab
+# CREATED: 2017-01-11
+# LAST UPDATED ON 2017-01-11
 ################################################################################
 # OPEN LIBRARIES 
 library(rstan)
@@ -30,7 +37,7 @@ nInd <- 11
 # Specify custom functions 
 # Radar chart customization function 
 # From: https://www.datanovia.com/en/blog/beautiful-radar-chart-in-r-using-fmsb-and-ggplot-packages/
-create_beautiful_radarchart_main <- function(data, color = "#00AFBB", 
+create_beautiful_radarchart <- function(data, color = "#00AFBB", 
                                         vlabels = colnames(data),
                                         caxislabels = NULL, title = NULL, ...){
   fmsb::radarchart(
@@ -38,35 +45,15 @@ create_beautiful_radarchart_main <- function(data, color = "#00AFBB",
     # Customize the polygon
     pcol = color, plwd = 3, plty = 1,
     # Customize the grid
-    cglcol = "black", cglty = 1, cglwd = 0.8,
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
     # Customize the axis
-    axislabcol = "black", 
+    axislabcol = "grey", 
     # Variable labels
     vlabels = vlabels,
-    cex.main = 4,
+    cex.main = 2.5,
     caxislabels = caxislabels, 
     title = title, 
-    calcex=3, palcex=3, vlcex=4,...
-  )
-}
-
-create_beautiful_radarchart_sub <- function(data, color = "#00AFBB", 
-                                             vlabels = colnames(data),
-                                             caxislabels = NULL, title = NULL, ...){
-  fmsb::radarchart(
-    data, axistype = 1,
-    # Customize the polygon
-    pcol = color, plwd = 3, plty = 1,
-    # Customize the grid
-    cglcol = "gray", cglty = 1, cglwd = 0.8,
-    # Customize the axis
-    axislabcol = "gray", 
-    # Variable labels
-    vlabels = vlabels,
-    cex.main = 3,
-    caxislabels = caxislabels, 
-    title = title, 
-    calcex=2, palcex=2, vlcex=3,...
+    calcex=2, palcex=2, vlcex=2,...
   )
 }
 
@@ -165,35 +152,28 @@ M_labels = c("774PWS", "775PWS", "776PWS", "777PWS",
              "781KOD", "782KOD", "783KOD", "784KOD", "785KOD", "786KOD", "788KOD")
 
 # Get colors for individuals
-getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
-               "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
-               "#cab2d6", "#8967ae", "#d5d000")
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
 ################################################################################
 # SECTION 1: POSTERIOR PREDICTIVE CHECK - Individual All Combos Models 
 ################################################################################
 
 # Set result  directory for individual all combination models
-comboresults <- paste(resultdir, "SSL_IndlAllCombos_2022-03-14/", sep = "")
+comboresults <- paste(resultdir, "SSL_IndlAllCombos_2021-11-16/", sep = "")
 # set it
 setwd(comboresults)
 # Get list of all files in results directory
 files <- list.files()
 
 # Load in rs_data
-rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds")
-
-# Summarize number of choices per ind'l 
-choices <- rs_data %>% group_by(ind_id) %>% summarize(nchoices = length(unique(choice_id)))
-mean(choices$nchoices)
-sd(choices$nchoices)
+rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds")
 
 # Covariate names (in order)
 covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", 
                  "logfish", "prox_fish_km", "prox_ship_km")
 covar_labels <- c("Bathymetry", "Distance to\nland", "Distance to\nshelf", 
-                  "Slope ", "Sea surface\ntemp.", "Wind speed", "Non-fishing intensity", "Fishing\nintensity", 
-                  "Distance to\nfishing", "Distance to\nnon-fishing")
+                  "Slope ", "SST", "Wind speed", "Shipping Intensity", "Fishing\nIntensity", 
+                  "Distance to\nfishing", "Distance to\nshipping")
 
 megasumms <- list()
 megaloos <- list()
@@ -229,51 +209,13 @@ for(i in 1:nInd){
 }
 
 
-# saveRDS(megasumms, "./Megasumms.rds")
-# saveRDS(megaloos, "./Megaloos.rds")
-# saveRDS(megawaics, "./Megawaics.rds")
-
-
-
-covar_labels <- data.frame(
-  Name = covar_names, 
-  Label=c("Bathymetry", "Distance to\nland", "Distance to\nshelf", 
-           "Slope ", "Sea surface\ntemp.", "Wind speed", "Non-fishing \nintensity", "Fishing\nintensity", 
-           "Distance to\nfishing", "Distance to\nnon-fishing"))
-
-Parameters <- c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]", 
-                "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]")
-
-
-P_labellist <- list() # Names of covariates in each top model (in order)
-betanums <- list() # Order number for covariates in each top model (1-10)
-
-# Identify covariates in each  top model 
-for(i in 1:nInd){
-  
-  # Import variable combinations for this individual 
-  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
-  
-  # Adjust column names 
-  colnames(mods) <- covar_names
-  
-  # Identify covariates included in the top model 
-  betatruefalse <- mods[topmodnums[[i]],]
-  betanums[[i]] <- which(betatruefalse[1,] == TRUE)
-  
-  covar_l <- covar_labels[betanums[[i]],]
-  covar_l$Parameter <- Parameters[1:length(betanums[[i]])]
-  
-  P_labellist[[i]] <- covar_l
-}
-
 ############################### 
 ######### RADAR PLOTS ######### 
 ############################### 
 
 ############# Big central radar plot with labels
 
-mods <- read.csv(paste0(comboresults, "ModelVariableList_1.csv")) %>% dplyr::select(-X)
+mods <- read.csv(paste0(comboresults, "ModelVariableList_1.csv")) %>% select(-X)
 # Adjust column names 
 colnames(mods) <- covar_names
 
@@ -293,21 +235,21 @@ pctcovars <- data.frame(t(colSums(topmods)/top95))
 
 pctcovars <- rbind(pctcovars, rep(0, 10))
 pctcovars <- rbind(pctcovars, rep(1, 10))
-rownames(pctcovars) <- c(1, "Min", "Max")
-pctcovars <- pctcovars[c("Max", "Min", 1),]
+rownames(pctcovars) <- c(i, "Min", "Max")
+pctcovars <- pctcovars[c("Max", "Min", i),]
 filename <- paste0(comboresults, "RadarPlot_1BIG.png")
-png(filename = filename, width = 18, height=16, units="in", res=200)
-create_beautiful_radarchart_main(pctcovars, vlabels=covar_labels$Label, 
+# png(filename = filename, width = 15, height=15, units="in", res=200)
+create_beautiful_radarchart(pctcovars, vlabels=covar_labels, 
                             caxislabels = c(0, 0.25, 0.50, 0.75, 1), 
-                            title=M_labels[[1]], color=getPalette[1])
-dev.off()
+                            title=M_labels[[1]], color=getPalette(11)[1])
+# dev.off()
 
 
 pctcovarsall <- data.frame()
 # All other covar plots without labels
 for(i in 1:nInd){
   
-  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
+  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% select(-X)
   # Adjust column names 
   colnames(mods) <- covar_names
   
@@ -324,86 +266,80 @@ for(i in 1:nInd){
   topmods <- mods[keep$modnum,]
   # Calculate percentage of top models containing each covariate
   pctcovars <- data.frame(t(colSums(topmods)/top95))
-  pctcovars$nmodels <- top95
-  pctcovars$ind_id <- M_labels[i]
+  
   # Add to overall data frame 
   pctcovarsall <- rbind(pctcovarsall, pctcovars)
   
   # Prep min and max values for radar 
-  pctcovars <- pctcovars %>% dplyr::select(-nmodels, -ind_id) %>% rbind(rep(0, 10))
+  pctcovars <- rbind(pctcovars, rep(0, 10))
   pctcovars <- rbind(pctcovars, rep(1, 10))
   rownames(pctcovars) <- c(i, "Min", "Max")
   pctcovars <- pctcovars[c("Max", "Min", i),]
   
-  filename <- paste0(comboresults, "RadarPlot_",i,".png")
-  png(filename = filename)
-  create_beautiful_radarchart_sub(pctcovars, vlabels="",
+  # filename <- paste0(comboresults, "RadarPlot_",i,".png")
+  # png(filename = filename)
+  create_beautiful_radarchart(pctcovars, vlabels="",
                               caxislabels = c(0, 0.25, 0.50, 0.75, 1),
-                              title=M_labels[[i]], color=getPalette[i])
-  dev.off()
+                              title=M_labels[[i]], color=getPalette(11)[i])
+  # dev.off()
 }
 
-pctcovarsall[,1:10] <- round(pctcovarsall[,1:10], 2)
-
-saveRDS(pctcovarsall, "./PctCovarsTopFivePct.rds")
-
-# Number of models in the top model set 
-pctcovarsall$nmodels
+pctcovarsall <- round(pctcovarsall, 2)
 
 ############################################ 
 ######### Chi-square on Top Models ######### 
 ############################################
 
-# # # model path
-# comp.modpath <- paste(resultdir, "/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
-# # 
-# # # read in compiled model object
-# mod <- readRDS(comp.modpath)
-# 
-# #### IMPORTED RESULTS OF THIS CODE BELOW
+# model path
+comp.modpath <- paste(resultdir, "SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
+
+# read in compiled model object
+mod <- readRDS(comp.modpath)
+
+#### IMPORTED RESULTS OF THIS CODE BELOW
 # topfitlst <- list()
 # 
 # for(i in 1:nInd){
-# 
+#   
 #   print(paste0("Processing individual: ", i))
-# 
-#   # Import variable combinations for this individual
-#   mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
-# 
-#   # Adjust column names
+#   
+#   # Import variable combinations for this individual 
+#   mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% select(-X)
+#   
+#   # Adjust column names 
 #   colnames(mods) <- covar_names
-# 
-#   # Identify covariates included in the top model
+#   
+#   # Identify covariates included in the top model 
 #   betatruefalse <- mods[topmodnums[[i]],]
 #   betanums[[i]] <- which(betatruefalse[1,] == TRUE)
-# 
+#   
 #   # Calculate total number of covars in top model
 #   K <- sum(betatruefalse[1,])
-# 
+#   
 #   # Specify number of choices per choice set
-#   C <- 6
-# 
-#   # Isolate out individual data
+#   C <- 6 
+#   
+#   # Isolate out individual data 
 #   rs_data_subset <- rs_data[rs_data$ind_id == i, ]
-# 
+#   
 #   # Specify number of choice sets for this individual
 #   N <- length(unique(rs_data_subset$choice_id))
-# 
-#   # create design array with all covariates
-#   x <- rsf_array(rs_data, c(N, C, 10))
-# 
+#   
+#   # create design array with all covariates 
+#   x <- rsf_array(rs_data, c(N, C, 10)) 
+#   
 #   # Remove unused covariates from data array
 #   x.temp <- x[,,betanums[[i]]]
 # 
 #   # must enter data into a list
 #   data <- list(
-#     C = C, K = K, N = N,
+#     C = C, K = K, N = N, 
 #     x = x.temp,
 #     y = rep(1, N),
 #     obs=c(1,0,0,0,0,0),
 #     pos = diag(1, 6)
 #   )
-# 
+#   
 #   # initial values are best supplied as a function
 #   inits <- function(){
 #     list(
@@ -412,15 +348,16 @@ pctcovarsall$nmodels
 #   }
 #   # a character vector of parameters to monitor
 #   params <- c('beta', 'chis_obs', 'chis_sim')
-# 
+#   
 #   fit <- sampling(mod, data = data, pars = params, init = inits,
 #                   chains =4, iter = 1000, warmup = 200, thin = 1)
-# 
+#   
 #   topfitlst <- c(topfitlst, fit)
-# 
+#   
 # }
-# saveRDS(topfitlst, paste0(resultdir, "/SSL_IndlAllCombos_2022-03-14/TopModelFits_ChiSquare.rds"))
-topfitlst <- readRDS(paste0(resultdir, "/SSL_IndlAllCombos_2022-03-14/TopModelFits_ChiSquare.rds"))
+# 
+# saveRDS(topfitlst, paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds"))
+topfitlst <- readRDS(paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/TopModelFits_ChiSquare.rds"))
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
@@ -437,23 +374,43 @@ for(i in 1:nInd){
 }
 
 
-##### Trying to simulate data based on the estimated parameter values 
-# library(rethinking)
-# 
-# test <- as.data.frame(summary(topfitlst[[1]])$summary[,1])
-# test$Parameter <- rownames(test)
-# test2 <- left_join(test, P_labellist[[1]]) 
-# test2 <- test2[-which(test2$Parameter %in% c("chis_obs", "chis_sim", "lp__")),]
-# 
-# nChoices <- length(unique(rs_data$choice_id[which(rs_data$ind_id == 1)]))
-# lapply(1:nChoices, function(x) rethinking::softmax())
-# # best way to calculate beta value times 
-# rethinking::softmax()
 ############################################ 
 ######### Caterpillar plots for Top Models ######### 
 ############################################
 
 
+covar_labels <- data.frame(
+  Name = covar_names, 
+  Label=c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", 
+          "Slope (degrees)", "Avg. sea surface\ntemperature (C)", 
+          "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", 
+          "Distance to fishing (km)", "Distance to shipping (km)"))
+
+Parameters <- c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]", 
+                            "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]")
+
+
+P_labellist <- list() # Names of covariates in each top model (in order)
+betanums <- list() # Order number for covariates in each top model (1-10)
+
+# Identify covariates in each  top model 
+for(i in 1:nInd){
+  
+  # Import variable combinations for this individual 
+  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% select(-X)
+  
+  # Adjust column names 
+  colnames(mods) <- covar_names
+  
+  # Identify covariates included in the top model 
+  betatruefalse <- mods[topmodnums[[i]],]
+  betanums[[i]] <- which(betatruefalse[1,] == TRUE)
+  
+  covar_l <- covar_labels[betanums[[i]],]
+  covar_l$Parameter <- Parameters[1:length(betanums[[i]])]
+  
+  P_labellist[[i]] <- covar_l
+}
 
 
 # Isolate out just caterpillar plots for presentation
@@ -466,7 +423,7 @@ for(i in 1:11){
     theme(axis.text.x = element_text(size=25), 
           axis.text.y = element_text(size=25)) +
     ylab("")
-  ggsave(paste0(resultdir, "SSL_IndlAllCombos_2022-03-14/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
+  # ggsave(paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
 }
 
 # Other miscellaneous plots 
@@ -477,18 +434,17 @@ for(i in 1:11){
 # 
 # rethinking::precis(topfitlst[[1]])
 
-############################################
+####################
 # Significance counts for variables in best fitting models
-############################################
 
 topmodbetas <- data.frame()
 
 for(i in 1:11){
-  temp <- as.data.frame(rstan::summary(topfitlst[[i]], pars=c("beta"))$summary)
-  temp$Parameter <- rownames(temp)
-  temp$ind_id <- i
-  temp <- left_join(P_labellist[[i]], temp)
-  topmodbetas <- rbind(topmodbetas, temp)
+temp <- as.data.frame(rstan::summary(topfitlst[[i]], pars=c("beta"))$summary)
+temp$Parameter <- rownames(temp)
+temp$ind_id <- i
+temp <- left_join(P_labellist[[i]], temp)
+topmodbetas <- rbind(topmodbetas, temp)
 }
 
 topmodbetas$sigpos <- ifelse(topmodbetas$`2.5%` > 0 & topmodbetas$`97.5%` > 0, 1, 0)
@@ -496,29 +452,26 @@ topmodbetas$signeg <- ifelse(topmodbetas$`2.5%` < 0 & topmodbetas$`97.5%` < 0, 1
 topmodbetas$signonsig <- ifelse(topmodbetas$`2.5%` < 0 & topmodbetas$`97.5%` > 0, 1, 0)
 
 
-topmodcounts <- topmodbetas %>% group_by(Label) %>% dplyr::select(Label, sigpos, signeg, signonsig) %>% 
-  gather(key="Significance", value="Count", -Label) %>% ungroup() %>% 
-  group_by(Label, Significance) %>% summarize(Count=sum(Count))
+test <- topmodbetas %>% group_by(Label) %>% select(Label, sigpos, signeg, signonsig) %>% 
+          gather(key="Significance", value="Count", -Label) %>% ungroup() %>% 
+          group_by(Label, Significance) %>% summarize(Count=sum(Count))
 
 ## set the levels in order we want
-pal <- c(rgb(187/255, 85/255, 102/255), rgb(221/255, 170/255, 51/255), rgb(0/255, 68/255, 136/255))
 
-p1 <- ggplot(topmodcounts, aes(fill=factor(Significance, levels=c("sigpos", "signonsig", "signeg")), y=Count, x= reorder(Label, -Count))) +
+
+p1 <- ggplot(test, aes(fill=factor(Significance, levels=c("sigpos", "signonsig", "signeg")), y=Count, x= reorder(Label, -Count))) +
   geom_bar(position="stack", stat="identity") +
-  scale_fill_manual(values = pal, labels=c("Sig. Positive", "Non-significant","Sig. Negative")) +
+  scale_fill_brewer(palette = "PRGn", labels=c("Sig. Positive", "Non-significant","Sig. Negative")) +
   # theme(legend.text = element_text(c("Sig. Positive", "Non-significant","Sig. Negative"))) +
   labs(fill='Effect') +
-  scale_y_continuous(breaks=c(0, 2, 4, 6, 8, 10, 12), expand=c(0,0)) +
-  ylab("Number of Individuals") +
+  scale_y_continuous(breaks=c(0, 2, 4, 6, 8, 10, 12)) +
+  ylab("Number of Models") +
   xlab("") +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 50, hjust=1), 
-        text = element_text(size = 20), 
-        legend.position=c(0.8,0.8),
-        panel.grid = element_blank())
+  theme(axis.text.x = element_text(angle = 50, hjust=1), text = element_text(size = 20))
 p1
-ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2022-03-14/SignificanceCountsBarPlot.png"), 
-width=8, height=8, units="in")
+# ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2021-11-16/SignificanceCountsBarPlot.png"), 
+       # width=8, height=9, units="in")
 
 
 #################################################################
@@ -528,39 +481,24 @@ width=8, height=8, units="in")
 
 ### figure 2: Population & individual global model point estimates 
 
-# Change Names, labels, and individual ids to factors 
 topmodbetas$Name <- as.factor(topmodbetas$Name)
 topmodbetas$Label <- as.factor(topmodbetas$Label)
 topmodbetas$ind_id <- as.factor(topmodbetas$ind_id)
 
-# Rename lower and upper CIs
-topmodbetas <- topmodbetas %>% rename(CI_L = '2.5%', CI_H = '97.5%') 
-
-# Reorder Label based on decreasing frequency
-topmodbetas$Label <- reorder(topmodbetas$Label, topmodbetas$Name, FUN = length)
-topmodbetas$Label <- factor(topmodbetas$Label, levels = rev(levels(topmodbetas$Label)))
-
-# Number of parameters in top model for eachindividual 
-topmodbetas %>% group_by(ind_id) %>% summarize(nparams=n())
-
-# Identify number of individuals with each parameter in the top model 
-topmodtotals <- topmodcounts %>% group_by(Label) %>% summarize(Count = sum(Count)) %>% arrange(-Count)
-
-
-# saveRDS(topmodbetas, "./TopModBetas.rds")
-# saveRDS(topmodcounts, "./TopModCounts.rds")
-# saveRDS(topmodtotals, "./TopModTotals.rds")
+topmodbetas <- topmodbetas %>% rename(CI_L = '2.5%', CI_H = '97.5%')
 
 ## Create figure 2 with credible intervals on individual estimates
-
+# figure 2 filepath
+fig1path <- paste(imagedir, "ERS1_step7_figure1_",
+                  datestr, ".jpg", sep = "")
 
 # initialize ggplot
-pop.p <- ggplot(data = topmodbetas) +
+pop.p <- ggplot(data = topmodbetas, aes(x = Name, y = mean)) +
   # add horizontal line for zero
   geom_hline(yintercept = 0, color = "navy", lwd = 1.5) + 
-  geom_pointrange(aes(ymin = CI_L, ymax = CI_H, x = Label, y = mean, color=ind_id),
-                  size = 0.8, position = position_jitterdodge(dodge.width=0.9)) + 
-  scale_color_manual(values=getPalette, labels=M_labels) +
+  geom_pointrange(aes(ymin = CI_L, ymax = CI_H, x = Name, y = mean),
+                  size = 0.2, position = position_jitter(0.3),
+                  alpha = 0.3, color = "darkcyan") + 
   theme(plot.background = element_rect(fill = "white"),
         panel.background = element_rect(fill = "white"),
         panel.grid.minor = element_blank(),
@@ -568,20 +506,27 @@ pop.p <- ggplot(data = topmodbetas) +
         axis.text = element_text(color = "black", size = 16),
         axis.title = element_text(color = "black", size = 16),
         axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.line = element_line(color = "black"), 
-        legend.text = element_text(size=16), 
-        legend.title = element_text(size=16)) + 
-  geom_vline(xintercept=c(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5), color= "lightgray") +
-  annotate(geom="text", x = 1:10, y = rep(-3, 10), label=paste0("n = ",topmodtotals$Count), color="black", size=6) +
+        axis.line = element_line(color = "black")) + 
+  
   
   ylab('Mean coefficient estimate') + 
   xlab('Resource covariate') + 
-  labs(color = "Individual") +
-  scale_y_continuous(limits = c(-3, 3)) 
+  scale_y_continuous(limits = c(-6, 6)) + 
+  geom_crossbar(data = pop.results, 
+                aes(ymin=pop.results$'5%.m' - pop.results$'95%.s', 
+                    ymax=pop.results$'95%.m' + pop.results$'95%.s',
+                    x = vars, y = mean.m), color = "gray50",
+                width = 0.7, size = 1, fatten = 0.5) + 
+  geom_errorbar(data = pop.results, 
+                aes(ymin=mean.m-mean.s, ymax=mean.m+mean.s,
+                    x = vars, y = mean.m), color = "gray75",
+                width = 0.7, size = 1) 
+# Initialize plotting device
+jpeg(fig1path, width = 12, height = 7, units = "in", res = 300)
+# plot the figure and close
+pop.p
+dev.off()
 
-# figure 2 filepath
-fig1path <- "./JointCaterpillar.png"
-ggsave(filename=fig1path, plot =  pop.p, width = 12, height = 8, units = "in")
 
 ######################################################################################
 
@@ -636,15 +581,15 @@ modparams <- read.csv(paste0("ModelVariableList_", ind, ".csv"))
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
 for(i in 1:11){
-  obs.disc <- rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]
-  # extract simulated discrepancies
-  sim.disc <- rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1]
-  # number of post-warmup draws
-  pdraw <- dim(obs.disc)[1] * dim(obs.disc)[2]
-  # Calculate Bayesian P-value
-  pval <- sum(rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1] >
-                rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]) / pdraw
-  print(pval)
+obs.disc <- rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]
+# extract simulated discrepancies
+sim.disc <- rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1]
+# number of post-warmup draws
+pdraw <- dim(obs.disc)[1] * dim(obs.disc)[2]
+# Calculate Bayesian P-value
+pval <- sum(rstan::extract(fitlst[[i]], 'chis_sim', F)[, , 1] >
+            rstan::extract(fitlst[[i]], 'chis_obs', F)[, , 1]) / pdraw
+print(pval)
 }
 
 # initiate figure

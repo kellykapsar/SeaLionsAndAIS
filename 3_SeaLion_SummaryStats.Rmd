@@ -63,15 +63,15 @@ Pull in SSL data.
 
 ```{r}
 
-ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220311.rds") 
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds") 
 
 covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km", "prox_fish_km_new", "prox_ship_km_new")
 covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Euc. Distance to fishing (km)", "Euc. Distance to shipping (km)", "LCP Distance to fishing (km)", "LCP Distance to shipping (km)")
 
 # Get colors for individuals
 getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
-                                   "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
-                                   "#cab2d6", "#8967ae", "#ffff99")
+               "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+               "#cab2d6", "#8967ae", "#ffff99")
 ```
 
 Calculate tag duration. 
@@ -221,6 +221,7 @@ corrlist <- lapply(1:11, function(x) ssl_new %>% filter(ind_id == x) %>%
                           # Convert column names to matrix numbers
 
 lapply(1:11, function(x)write.csv(corrlist[[x]], paste0("../Data_Processed/Telemetry/Corrs_", x, ".csv")))
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 ```
 
 

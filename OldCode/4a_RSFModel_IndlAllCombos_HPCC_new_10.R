@@ -75,7 +75,7 @@ outpath <- paste("../Results/output.Rout", sep = "")
 print("Time begin"); print(start); cat("\n"); 
 
 # resource selection data path
-rs.data.path <- paste("../Data/UsedAndAvail_WeeklyKDE_20211104.rds", sep = "")
+rs.data.path <- paste("../Data/UsedAndAvail_WeeklyKDE_20220311.rds", sep = "")
 # read in resource selection data and sort with used point at top of list
 rs_data <- readRDS(rs.data.path) %>% group_by(weeklyhr_id) %>% mutate(weeklyhr_id = cur_group_id())
 
@@ -120,7 +120,7 @@ options(mc.cores = parallel::detectCores())
 registerDoParallel(cores=as.numeric(Sys.getenv("SLURM_CPUS_ON_NODE")[1]))
 
 # RUN ON ONE INDIVIDUAL
-ind <- 9
+ind <- 10
 rs_data_subset <- rs_data[rs_data$ind_id == ind,]
 
 # Create filepath for output
@@ -136,12 +136,12 @@ x <- rsf_array(rs_data_subset, c(N, C, K))
 corrs <- read.csv(paste0("../Data/Corrs_", ind, ".csv"))
 
 # Adjust all possible combinations matrix to remove rows with correlated variables
-# for(i in 1:length(corrs$x)){
-#   truex <- which(master[,corrs$x[i]] == TRUE) # row nums where first correlated var included
-#   truey <- which(master[,corrs$y[i]] == TRUE) # row nums where second correlated var included
-#   trueboth <- intersect(truex, truey) # row nums where both correlated covars included
-#   master <- master[-trueboth,] # Remove rows including both correlated covars
-# }
+for(i in 1:length(corrs$x)){
+  truex <- which(master[,corrs$x[i]] == TRUE) # row nums where first correlated var included
+  truey <- which(master[,corrs$y[i]] == TRUE) # row nums where second correlated var included
+  trueboth <- intersect(truex, truey) # row nums where both correlated covars included
+  master <- master[-trueboth,] # Remove rows including both correlated covars
+}
 
 master <- master[-which(rowSums(master) == 1),]
 

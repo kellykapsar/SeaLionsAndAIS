@@ -1,0 +1,162 @@
+---
+title: "Marine Cadastre & SNAP"
+author: "Kelly Kapsar"
+date: "9/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries, message=FALSE}
+library(sf)
+library(dplyr)
+library(tidyr)
+library(raster)
+library(ggplot2) # Plotting tools
+```
+
+Downloading [Marine Cadastre](https://marinecadastre.gov/ais/) AIS data using the [getais](https://github.com/ericward-noaa/getais) R package developed by Eric Ward at NOAA.
+
+```{r download data, eval=FALSE}
+
+library(getais)
+
+# Create file to download to 
+if (!file.exists("filtered")) dir.create("filtered")
+
+#all_combos = expand.grid("zone"=1:3,"year"=2012,"month"=1:12)
+onemonth = expand.grid("zone"=1:3, "year"=2013, "month"=1)
+onemontheast = expand.grid("zone"=4:6, "year"=2013, "month"=1)
+
+vessel = c("VesselType","Length","IMO", "CallSign", "Name", "Width", "DimensionComponents")
+voyage = c("Destination" ,"Cargo", "Draught", "ETA", "StartTime", "EndTime")
+
+#downsample_ais(df = all_combos, every_minutes = 30, vessel_attr=vessel, voyage_attr=voyage)
+downsample_ais(df=onemontheast,vessel_attr=vessel, voyage_attr=voyage, raw=TRUE)
+
+```
+
+```{r load data}
+# List all ais files
+allAIS <- list.files("./filtered/", pattern="2013.rds")
+# Open al ais files in R
+temp <- lapply(paste0("./filtered/",allAIS), readRDS)
+# Bind all data files together
+ships <- do.call("rbind",temp)
+
+# Read basemap
+BBmap <- st_read("C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Documents/MSU/SideProjects/4-ATBAComplianceAnalysis/Data_Raw/BBmap.shp") %>% 
+  st_transform(3338) %>% st_buffer(0)
+
+# Transform ais data to spatial object 
+ships <- st_as_sf(ships) %>% 
+  st_crop(xmin=-180, xmax=180, ymin=45, ymax=66) %>%
+  st_transform(3338)
+
+# Group by voyages and count number of locations in each voyage
+shipsAgg <- ships %>% arrange(BaseDateTime) %>% 
+  group_by(MMSI, VoyageID) %>% summarize(n=n(), do_union=FALSE) 
+# Remove voyages with only one location and turn the rest into lines 
+shipsLines <- st_cast(shipsAgg[shipsAgg$n > 1,], "LINESTRING")
+
+# Save a copy of the shape file 
+# st_write(ships, "MarineCadastre_Zone123_2012.shp")
+
+# Figure out how many points from each type of vessel 
+typecode <- ships %>% group_by(VesselType) %>% summarize(n=n()) %>% st_drop_geometry()
+typecode$pct <- typecode$n/sum(typecode$n)*100
+
+```
+
+```{r Import SNAP data}
+snappath <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Documents/MSU/Data/SNAP_AIS/lines/"
+files <- list.files(snappath, pattern=".shp")
+# Open al ais files in R
+temp <- lapply(paste0(snappath,files), st_read)
+# Bind all data files together
+shipssnap <- do.call("rbind",temp)
+
+
+```
+
+
+```{r rasterize both datasets}
+#Create the clipping polygon for the study area
+#Lat/lon boundaries = -156, -144, 55, 62
+coords <- list(matrix(c(-156, 55, -156, 62, -144, 62, -144, 55, -156, 55), 
+                      ncol=2, byrow=TRUE))
+proj <- "+proj=latlong +datum=NAD83 +ellps=GRS80"
+CP <- st_sfc(st_polygon(coords), crs = proj)
+CP <- st_transform(CP, 3338)
+
+
+#Crop vessel track lines to the extent of the study area
+shipsLines$GOA <- shipsLines %>% st_intersects(CP, sparse=FALSE)
+shipsLinesGOA <- shipsLines[shipsLines$GOA==TRUE,] 
+
+shipssnap$GOA <- shipssnap %>% st_intersects(CP, sparse=FALSE)
+shipssnapGOA <- shipssnap[shipssnap$GOA==TRUE,]
+
+
+#Create a grid over the study area
+CP.grid.25 <- st_make_grid(CP, cellsize=25000, #I think this cell size is 25 sq skm 
+                                 crs = 3338, what = 'polygons') %>%
+  st_sf('geometry' = ., data.frame('ID' = 1:length(.)))
+
+# Collect total length of lines intersecting eith each grid cell 
+start_time <- Sys.time()
+CP.grid.25$intensity.all.apply <- lapply(1:nrow(CP.grid.25), 
+      function(i){sum(st_length(st_intersection(shipsLinesGOA, CP.grid.25$geometry[i])))})
+CP.grid.25$mcint <- unlist(CP.grid.25$intensity.all.apply)
+end_time <- Sys.time()
+
+print(paste0((end_time - start_time)))
+# browseURL("https://www.youtube.com/watch?v=1mrGdGMNsv0&ab_channel=PerSix")
+
+start_time <- Sys.time()
+CP.grid.25$intensity.all.apply <- lapply(1:nrow(CP.grid.25), 
+      function(i){sum(st_length(st_intersection(shipssnapGOA, CP.grid.25$geometry[i])))})
+CP.grid.25$snapint <- unlist(CP.grid.25$intensity.all.apply)
+end_time <- Sys.time()
+
+print(paste0((end_time - start_time)))
+# browseURL("https://www.youtube.com/watch?v=1mrGdGMNsv0&ab_channel=PerSix")
+```
+
+
+```{r correlation analysis}
+
+hist(corr$mcint)
+hist(corr$snapint)
+
+# Separate out cells in the raster with at least some vessel traffic 
+corr <- CP.grid.25[CP.grid.25$snapint > 0 & CP.grid.25$mcint > 0,]
+corrlong <- corr %>% 
+  st_drop_geometry() %>% 
+  gather(key="source",value="distance", snapint:mcint)
+
+cor.test(x=corr$snapint, y=corr$mcint)
+```
+
+
+```{r visualize the data}
+# Initial plot of data 
+ggplot() + 
+  geom_sf(data=BBmap, fill="darkgray",color="darkgray") +
+  geom_sf(data=shipsLinesGOA) +
+  geom_sf(data=shipsLinesGOA[7,], color="red") +
+  #geom_sf(data=CP.grid.25, aes(fill=log(intensity)), alpha=1) +
+  coord_sf(xlim=c(-156, -144), ylim=c(56, 62), crs=4326, expand=FALSE) +
+  theme_bw()
+
+
+plot(shipsLinesGOA[7,])
+st_length(shipsLinesGOA[7,])
+# How to combine voyages from different UTM zones? 
+# Why are there so many errors in the signal? 
+
+```
+
+

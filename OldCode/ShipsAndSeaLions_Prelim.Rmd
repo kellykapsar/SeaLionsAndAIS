@@ -1,0 +1,84 @@
+---
+title: "Steller Sea Lion and AIS"
+author: "Kelly Kapsar"
+date: "7/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r }
+# Import libraries 
+library(sf) # Spatial analysis of points, lines, and polygons in R
+library(raster) # Raster analysis tools
+library(ggplot2) # Plotting tools
+library(dplyr) 
+library(tidyr)
+#library(tmap) # Mapping tools
+library(scales) # Add commas to numbers in text output
+library(RColorBrewer)
+library(lme4)
+library(knitr)
+library(lubridate)
+
+# Set working directory to "Code"" folder 
+setwd("C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/4-ATBAComplianceAnalysis/Code")
+
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Import shipping data
+tank <- st_read("../Data_Raw/Final_Tankers_scrambledMMSI_filtered_and_geomv2_revisedFeb17.shp")
+carg1 <- st_read("../Data_Raw/Final_cargo_mmsiscram_grosston400_part1.shp")
+carg2 <- st_read("../Data_Raw/Final_cargo_mmsiscram_grosston400_part2.shp")
+carg3 <- st_read("../Data_Raw/Final_cargo_mmsiscram_grosston400_part3.shp")
+carg4 <- st_read("../Data_Raw/Final_cargo_mmsiscram_grosston400_part4.shp")
+carg5 <- st_read("../Data_Raw/Final_cargo_mmsiscram_grosston400_part5_revisedFeb17.shp")
+
+cargs <- rbind(carg1, carg2, carg3, carg4, carg5)
+colnames(cargs) <- colnames(tank)
+ships <- rbind(tank, cargs)
+
+#ships <- st_wrap_dateline(ships)
+
+AA <- c("+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+
+ships <- ships %>% st_transform(AA)
+
+
+geom <- st_sfc(st_polygon(list(rbind(c(-147, 57), c(-134, 57),c(-134, 62),c(-147, 62),c(-147, 57)))))
+studyarea <- st_sf(ID = 1, geometry = geom)
+st_crs(studyarea) <- 4326
+
+studyarea.AA <- st_transform(studyarea, AA)
+
+ships.crop <- st_crop(ships, studyarea.AA)
+
+bbmap <- read_sf("../Data_Raw/BBmap.shp")
+
+ggplot() + 
+  geom_sf(data=bbmap, fill="darkgray",color="darkgray") +
+  geom_sf(data=st_wrap_dateline(ships[1:10000,], options=c("WRAPDATELINE=YES")), color="tan") +
+  geom_sf(data=studyarea, color="red", fill=NA) +
+  #coord_sf(crs=4326, xlim = c(-147,-134),ylim=c(57,62))+
+  # Adjusting colors and labels
+  #annotation_north_arrow(location = "br", which_north = "true", 
+  #                       style=north_arrow_minimal, pad_y = unit(0.6, "cm")) +
+  #annotation_scale(location = "br") + 
+  theme_bw() +
+  theme(panel.grid.major = element_line(color = "lightgray", size = 0.5),
+        panel.background = element_rect(fill = "aliceblue"))
+# ggsave("../Figures/SurveyEffort.png", width=6, height=6, units="in")
+
+
+plot(ships$geometry[1:10000])
+
+st_crs(ships)
+```
