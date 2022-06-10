@@ -1,0 +1,218 @@
+---
+title: "2b_DistanceToVessels"
+author: "Kelly Kapsar"
+date: "3/4/2022"
+output: html_document
+---
+
+```{r load libraries}
+
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(ggplot2)
+library(scales)
+library(ggmap)
+library(amt) 
+library(stars)
+library(fasterize)
+
+```
+
+```{r}
+# weekly homerange polygons
+hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20211104.shp")
+
+hr$deploy_id <- substr(hr$wklyhr_, 1, 13)
+hr$year <- substr(hr$wklyhr_, 14,17)
+hr$week <- substr(hr$wklyhr_, 18,19)
+
+# Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
+load(file="../Data_Processed/Telemetry/TEMP.rda")
+
+# Vessel tracklines
+# # Import ship data, create sf objects, combine into one sf object, and generate year value 
+# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
+# ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
+# ships <- do.call(rbind, ships) # Combine all ships into one sf object
+# ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
+# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
+# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+
+# Boundary for AIS data acquisition
+# aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(32605) 
+# aisbound_sp <- as(aisbound_sf, "Spatial")
+
+# Land mask (using bathymetry data)
+land <- raster("../Data_Processed/Bathymetry.tif")
+land[values(land) > 0] <- 1
+land[values(land) < 0] <- NA
+
+
+```
+
+
+```{r proximity calculations}
+##################################################################
+############# CALCULATE PROXIMITY TO VESSELS ############# 
+##################################################################
+# Standardize dates 
+ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
+
+# ID unique SSL/week combos 
+weeklyhr_ids <- unique(ssl4$weeklyhr_id)
+
+# Separate fishing vessel from other vesels 
+nofish <- ships[ships$AIS_Typ != "Fishing",]
+fish <- ships[ships$AIS_Typ == "Fishing",]
+
+# Afunction to create a cost distance raster tot he nearest ship using a set of points
+# with their associated homerange polygon, vector lines for vessels, and a raster
+# of land pixels 
+extractcostdist <- function(pts, lines, land, hrs){
+  # Id correct homerange polygon 
+  polyhr <- hrs[which(hrs$deploy_id == pts$deploy_id[1] & 
+                   hrs$year == pts$year[1] &
+                   hrs$week == pts$weekofyear[1]),]
+  polyhr <- st_buffer(polyhr, 100000)
+  # Id lines within the date range
+  lines <- lines[lines$date == pts$date[1],]
+  # Isolate lines that spatially intersect homerange
+  linesin <- lines[st_intersects(polyhr, lines, sparse=FALSE),]
+  if(length(linesin$AIS_ID) == 0){return(NA)}
+  # Create template raster at 250 m resolution
+  template <- raster(polyhr, res=250, crs=st_crs(polyhr)) 
+  values(template) <- 0
+  # Convert template to sf obj
+  templatesf <- stars::st_as_stars(template) %>% st_as_sf()
+  # Id cells with intersecting lines in sf obj
+  cellswithtraff <- st_intersects(linesin, templatesf, sparse=F)
+  templatesf$traff <- colSums(cellswithtraff) > 0
+  # Convert back to raster
+  test <- fasterize(templatesf, template, field="traff")
+  # Resample land raster to match ship raster 
+  landcrop <- raster::resample(land, test, method="ngb")
+  # Mask land out of ship raster 
+  newtest <- raster::mask(test, landcrop, maskvalue = 1)
+  # Calculate least cost path around land and convert to km 
+  distshipras <- gridDistance(newtest, origin = 1, omit=NA)/1000
+  # Convert back to sf object and buffer 
+  distshipsf <- stars::st_as_stars(distshipras) %>% st_as_sf()
+  distshipbuff <- st_buffer(distshipsf, dist=125)
+  return(distshipbuff)
+}
+
+################ FISHING ################ 
+# Extract pixel values from cost distance raster
+start <- proc.time()
+ssl5 <- data.frame()
+
+for(i in 1:10){
+  print(i)
+  pts <- ssl4[which(ssl4$weeklyhr_id == weeklyhr_ids[i]),]
+
+  costdist <- extractcostdist(pts, fish, land, hr)
+  pts$prox_fish_km_new <- NA
+
+  if(class(costdist) == "logical"){
+    print(paste0(weeklyhr_ids[i], " removed."))
+    # next
+  }
+  vals <- st_intersects(pts, costdist)
+
+  temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
+  pts$prox_fish_km_new <- unlist(temp)
+  ssl5 <- rbind(ssl5, pts)
+}
+proc.time() - start
+# saveRDS(ssl5, "../Data_Processed/Telemetry/ssl5.rds")
+# ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5.rds")
+cor.test(ssl5$prox_fish_km, ssl5$prox_fish_km_new, method="spearman")
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+
+ssl5$used <- factor(ssl5$used)
+
+ggplot(ssl5, aes(x=prox_fish_km, y=prox_fish_km_new, color=used)) +
+  geom_point()
+
+################ SHIPPING ################ 
+# Extract pixel values from cost distance raster
+start <- proc.time()
+ssl6 <- data.frame()
+
+for(i in 95:length(weeklyhr_ids)){
+  print(i)
+  pts <- ssl5[which(ssl5$weeklyhr_id == weeklyhr_ids[i]),]
+  
+  costdist <- extractcostdist(pts, nofish, land, hr)
+  pts$prox_ship_km_new <- NA
+  
+  if(class(costdist) == "logical"){
+    next
+  }
+  vals <- st_intersects(pts, costdist)
+  
+  temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
+  pts$prox_ship_km_new <- unlist(temp)
+  ssl6 <- rbind(ssl6, pts)
+}
+proc.time() - start
+
+saveRDS(ssl6, "../Data_Processed/Telemetry/ssl6_1-94.rds")
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+################ TEST TO SEE IF IT WORKED ################ 
+
+farthership <- ssl6 %>%
+  st_drop_geometry() %>% 
+  mutate(diffdistship = prox_ship_km_new - prox_ship_km) %>% 
+  filter(diffdistship < 0)
+mean(farthership$diffdistship)*1000
+
+fartherfish <- ssl6 %>%
+  st_drop_geometry() %>% 
+  mutate(diffdistfish = prox_fish_km_new - prox_fish_km) %>% 
+  filter(diffdistfish < 0)
+mean(fartherfish$diffdistfish)*1000
+
+
+cor.test(ssl6$prox_ship_km, ssl6$prox_ships_km_new, method="spearman")
+
+ggplot(ssl6, aes(x=prox_ship_km, y=prox_ships_km_new, color=used)) +
+  geom_point()
+
+
+useddiffs <- ssl6 %>% 
+  st_drop_geometry() %>% 
+  mutate(diffdistship = prox_ship_km_new - prox_ship_km, 
+         diffdistfish = prox_fish_km_new - prox_fish_km) %>% 
+  select(diffdistship, diffdistfish, used) %>% 
+  gather(-used, key=metric, value=value)
+
+
+# test difference between cost dist and euclidean 
+# and see if it's different between used and available
+
+# t.test(useddiffs$diffdist, availdiffs$diffdist)
+# summary(useddiffs$diffdist)
+# summary(availdiffs$diffdist)
+
+mean(ssl6$prox_fish_km, na.rm=TRUE) 
+mean(ssl6$prox_fish_km_new, na.rm=TRUE) 
+mean(ssl6$prox_ship_km, na.rm=TRUE) 
+mean(ssl6$prox_ship_km_new, na.rm=TRUE) 
+
+
+ssl6long <- ssl6 %>%  st_drop_geometry() %>% select(prox_ship_km, prox_ship_km_new, prox_fish_km, prox_fish_km_new) %>% gather(key=metric, value=value)
+
+ggplot(ssl6long, aes(value, fill=metric)) +
+  geom_density(alpha=0.3)
+
+ggplot(ssl6long, aes(x=metric, y=value)) +
+    geom_violin()
+
+```
+
