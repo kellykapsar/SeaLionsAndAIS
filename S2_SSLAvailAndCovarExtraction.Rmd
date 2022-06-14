@@ -149,7 +149,7 @@ for(i in 1:length(unique(trk$id))){
 }
 
 # Save output polygons 
-st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_season_20220610.shp")
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_season_20220614.shp")
 
 # Clean up column names in available points 
 avail_pts_new <- avail_pts %>% mutate(deploy_id = substr(avail_pts$seasonhr_id, 1, 13), 
@@ -160,7 +160,7 @@ avail_pts_new <- avail_pts %>% mutate(deploy_id = substr(avail_pts$seasonhr_id, 
                            select(-case_)
 
 # Extract raster values and clean up columns for used points 
-ssl_new <- ssl %>% 
+ssl_newer <- ssl_new %>% 
             select(deploy_id, seasonhr_id, year, date, northing, easting, used) %>% 
             cbind(., raster::extract(staticcovars, .)) %>% 
             mutate(season = getSeasonYear(date)) %>% 
@@ -168,7 +168,7 @@ ssl_new <- ssl %>%
             rename(dist_land = DistLand, dist_500m = Dist500m) 
 
 # Merge used with available 
-all_pts <- avail_pts_new %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
+all_pts <- avail_pts_new %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_newer)
 
 # Rename to match other naming schemes
 ssl4 <- all_pts
