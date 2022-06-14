@@ -22,23 +22,23 @@ library(fasterize)
 
 ```{r}
 # weekly homerange polygons
-hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20211104.shp")
+hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_season_20220610.shp")
 
-hr$deploy_id <- substr(hr$wklyhr_, 1, 13)
-hr$year <- substr(hr$wklyhr_, 14,17)
-hr$week <- substr(hr$wklyhr_, 18,19)
+hr$deploy_id <- substr(hr$ssnhr_d, 1, 13)
+hr$season <- substr(hr$ssnhr_d, 15, nchar(as.character(hr$ssnhr_d)))
+hr$year <- substr(hr$ssnhr_d, nchar(as.character(hr$ssnhr_d))-3, nchar(as.character(hr$ssnhr_d)))
 
 # Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
-load(file="../Data_Processed/Telemetry/TEMP.rda")
+load(file="../Data_Processed/Telemetry/TEMP_seasonal.rda")
 
 # Vessel tracklines
 # # Import ship data, create sf objects, combine into one sf object, and generate year value 
-# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp") 
+# ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
 # ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(st_crs(ssl4))})
 # ships <- do.call(rbind, ships) # Combine all ships into one sf object
 # ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
 # st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
-# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 
 # Boundary for AIS data acquisition
