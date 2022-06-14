@@ -1,8 +1,6 @@
 
 
 
-
-
 # A function equivalent to += in Python 
 `%+=%` = function(e1,e2) eval.parent(substitute(e1 <- e1 + e2))
 
