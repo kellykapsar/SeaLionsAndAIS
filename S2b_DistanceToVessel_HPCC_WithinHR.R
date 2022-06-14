@@ -1,6 +1,7 @@
 
 
 # Load libraries
+library(lubridate)
 library(tidyr)
 library(dplyr)
 library(sf)
@@ -12,6 +13,7 @@ library(doParallel)
 
 # Load functions
 source("./S0_Functions.R")
+# source("./S0_Functions.R") # Home computer path
 
 # weekly homerange polygons
 hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_season_20220614.shp")
@@ -25,7 +27,8 @@ hr$season <- substr(hr$ssnhr_d, 15,nchar(hr$ssnhr_d))
 load(file="../Data_Processed/Telemetry/TEMP_seasonal.rda")
 
 # Vessel tracklines
-ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+# ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds") # Home computer path 
+ships <- readRDS( "../Data_Processed/AIS/AllVessels_Reprojected.rds") # HPCC path 
 
 # Land raster
 land <- raster("../Data_Processed/Bathymetry.tif")
@@ -49,7 +52,7 @@ registerDoParallel(cores=as.numeric(Sys.getenv("SLURM_CPUS_ON_NODE")[1]))
 ships$season <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% getSeasonYear()
 
 # ID unique SSL/week combos 
-seasonhr_idshr_ids <- unique(ssl4$seasonhr_id)
+seasonhr_ids <- unique(ssl4$seasonhr_id)
 
 # Separate fishing vessel from other vesels 
 nofish <- ships[ships$AIS_Typ != "Fishing",]
@@ -121,5 +124,5 @@ ssl5 <- foreach(i = 1:length(seasonhr_ids), .packages = c("raster", "sf", "dplyr
   temp  <- lapply(1:length(pts$easting), function(x){mean(costdist$layer[vals[[x]]])})
   pts$prox_ship_km_new <- unlist(temp)
   
-  saveRDS(pts, paste0("../Data/ssl5/",seasonhr_ids[i],".rds"))
+  saveRDS(pts, paste0("../ssl5/",seasonhr_ids[i],".rds"))
 }
