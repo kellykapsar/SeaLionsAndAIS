@@ -5,6 +5,9 @@ date: "11/9/2020"
 output: html_document
 ---
 
+This script is designed only to re-process those variables that were aggregated at a weekly timescale in the 1b_CovariateDataProcessing.Rmd script. This script takes these variables (AIS intensity, wind speed, and sst) and re-aggregates them to a seasonal timescale. The subsequent scripts (with the prefix "S") take these variables and use them as inputs to  seasonal SSL RSF models (as opposed to the original weekly models). Other variables in the seasonal model are extracted from the rasters created in the original 1b script and did not need to be re-processed in this script because they do not change over time. 
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -151,128 +154,6 @@ saveRDS(fishingbrickseason, "../Data_Processed/AIS_Fishing_Season.rds")
 #   geom_sf(data=study, fill=NA, color="red") +
 #   scale_fill_gradient2(trans="log10", low = "black", mid="gray", high="red")
 
-```
-
-## AIS Data -- Proximity 
-
-
-90% SURE THIS PROXIMITY CODE ISN'T ACTUALLY DOING ANYTHING AND THE PROXIMITY CALCULATIONS COME FROM THE 2B_DistanceToVessel_HPCC_WithinHR.R script. 
-
-```{r ais, warning=FALSE}
-
-# # Create list of weeks
-# yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/31"), "week")
-# 
-# # convert to season and year
-# idx <- getSeasonYear(yearmon)
-# 
-# 
-# # Boundary for AIS data acquisition
-# aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
-# aisbound_sp <- aisbound_sf %>% as("Spatial")
-# 
-# # Land mask
-# land <- raster("../Data_Processed/Bathymetry.tif")
-# land[values(land) > 0] <- 1
-# land[values(land) < 0] <- NA
-
-# Import ship data, create sf objects, combine into one sf object, and generate year value
-ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
-ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x))}) %>% st_transform(prj)
-ships <- do.call(rbind, ships) # Combine all ships into one sf object
-ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
-
-st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
-saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
-
-# # Then data were sent to AIS_Rasterization_SSLSubset_20210824.R (in Alaska Conservation AIS folder)
-# 
-# # Import raster, reproject to 4336, and crop to study area
-# fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Fishing")
-# otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Other")
-# cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Cargo")
-# tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", pattern="Tanker")
-# 
-# # Create raster bricks for each ship type 
-# fishingras <- lapply(fishinglist, 
-#                 function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
-# 
-# landcrop <- raster::resample(land, fishingras[[1]], method="ngb")
-# 
-# # Set all values > 1 equal to 1
-# ToOnes <- function(ras){
-#   values(ras)[values(ras) > 0] <- 1
-#   return(ras)
-# }
-# 
-# # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
-# 
-# 
-# 
-# start <- proc.time()
-# # Loop through each season, aggregate rasters, mask out land, and calculate grid distance
-# for(i in 1:length(unique(idx))){
-#   print(i)
-#   # Identify layers from the same season
-#   layernums <- which(idx == unique(idx)[i])
-#   # Combine them into the same raster brick
-#   ras <- brick(fishingras[layernums])
-#   seasonras <- sum(ras)
-#   # Remove land 
-#   masked <- raster::mask(seasonras, landcrop, maskvalue = 1)
-#   # Convert all cells with any traffic to 1 
-#   maskedbinary <- ToOnes(masked)
-#   # Calculate distant to each "1" cell from each non-1 cell (and convert to km)
-#   temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
-#   
-#   rasname <- unique(idx)[i]
-#   writeRaster(temp, paste0("../Data_Processed/AIS/SeasonalFishDist_", i, "_", rasname,"_250m.tif"))
-# }
-# 
-# 
-# otherras <- lapply(otherlist, 
-#                 function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
-# 
-# cargoras <- lapply(cargolist, 
-#                 function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))}) 
-# 
-# tankerras <- lapply(tankerlist, 
-#                 function(x){raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/250m/EPSG32605/", x))})
-# 
-# shippingras <- c()
-# for(i in 1:92){
-#   temp <- otherras[[i]] + cargoras[[i]] + tankerras[[i]]
-#   shippingras <- c(shippingras, temp)
-# }
-# 
-# # Loop through each season, aggregate rasters, mask out land, and calculate grid distance
-# for(i in 8:length(unique(idx))){
-#   print(i)
-#   # Identify layers from the same season
-#   layernums <- which(idx == unique(idx)[i])
-#   # Combine them into the same raster brick
-#   ras <- brick(shippingras[layernums])
-#   # Have to break up sum into two parts to minimize disk space
-#   seasonras1 <- sum(ras[[1:6]])
-#   if(length(layernums) > 6){
-#      seasonras2 <- sum(ras[[7:nlayers(ras)]])
-#      seasonras <- sum(seasonras1, seasonras2) 
-#   }else{seasonras <- seasonras1}
-#   # Remove land 
-#   masked <- raster::mask(seasonras, landcrop, maskvalue = 1)
-#   # Convert all cells with any traffic to 1 
-#   maskedbinary <- ToOnes(masked)
-#   # Calculate distant to each "1" cell from each non-1 cell (and convert to km)
-#   temp <- gridDistance(maskedbinary, origin = 1, omit=NA)/1000
-#   
-#   rasname <- unique(idx)[i]
-#   writeRaster(temp, paste0("../Data_Processed/AIS/SeasonalShipDist_", i, "_", rasname,"_250m.tif"))
-# }
-# 
-# (proc.time()-start)/60
-
-
- # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 ```
 
 ## Wind Speed 
