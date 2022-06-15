@@ -23,17 +23,17 @@ library(ggmap)
 # Comes as one file for each ssl/week combo that must be merged together
 # I merged them and saved the output and now I just load the output bc it takes a while to merge
 
-# files <- list.files("../Data_Processed/Telemetry/ssl5")
-# alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5/", x))})
-# ssl5 <- data.frame()
-# 
-# for(i in 1:length(alldat)){
-#   print(i)
-#   test <- rbind(test, alldat[[i]])
-# }
-# saveRDS(test, "../Data_Processed/Telemetry/ssl5/ssl5.rds")
+files <- list.files("../Data_Processed/Telemetry/ssl5_season")
+alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5_season/", x))})
+ssl5 <- data.frame()
 
-ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5/ssl5.rds")
+for(i in 1:length(alldat)){
+  print(i)
+  ssl5 <- rbind(ssl5, alldat[[i]])
+}
+saveRDS(ssl5, "../Data_Processed/Telemetry/ssl5/ssl5_season.rds")
+
+ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5/ssl5_season.rds")
 
 
 # Projection information for WGS84/UTM Zone 5N (EPSG:32605)
@@ -58,16 +58,16 @@ ssl_orig <- ssl_orig %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
 
 # Create a choice_id
 ssl <- data.frame()
-weeklyhr_ids <- unique(ssl_orig$weeklyhr_id)
+seasonhr_ids <- unique(ssl_orig$seasonhr_id)
 nextid <- 0
 
-for(i in 1:length(unique(ssl_orig$weeklyhr_id))){
+for(i in 1:length(unique(ssl_orig$seasonhr_id))){
   print(i)
-  used <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 1)
-  avail <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 0)
+  used <- ssl_orig %>% filter(seasonhr_id == seasonhr_ids[[i]], used == 1)
+  avail <- ssl_orig %>% filter(seasonhr_id == seasonhr_ids[[i]], used == 0)
   
-  used$choice_id <- (nextid+1):(length(used$date)+nextid)
-  avail$choice_id <- rep((nextid+1):(length(avail$date_outer)/5 + nextid), each=5)
+  used$choice_id <- (nextid+1):(length(used$easting)+nextid)
+  avail$choice_id <- rep((nextid+1):(length(avail$easting)/5 + nextid), each=5)
   
   temp <- rbind(used, avail)
   ssl <- rbind(ssl, temp)
@@ -76,14 +76,14 @@ for(i in 1:length(unique(ssl_orig$weeklyhr_id))){
 }
 
 # Reorder columns to a more logical order 
-covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km", "prox_fish_km_new", "prox_ship_km_new")
+covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km_new", "prox_ship_km_new")
 
-colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
+colorder <- c("deploy_id", "ind_id", "seasonhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
 
 ssl <- ssl[,colorder] %>% as.data.frame()
 
 # Order data appropriately 
-ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
+ssl <- ssl %>% arrange(seasonhr_id, choice_id, desc(used))
 
 
 ```
@@ -99,37 +99,15 @@ ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
 # THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
 
 # Save output as non-spatial and without coordinates
-saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.rds")
-write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.csv")
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.csv")
 
 # Make it spatial again
 ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.shp")
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.shp")
 
-########################################################### 
-############## SAVE OUTPUT WITHOUT SSH & EKE ############## 
-###########################################################
-
-# Remove coarse scale abiotic variables and select only complete cases 
-ssl_narrow <- ssl %>% dplyr::select(-ssh, -eke) %>% na.omit() %>% as.data.frame()
-
-# Remove choice_ids with insufficient sample size due to NA values 
-tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
-ssl_narrow <- left_join(ssl_narrow, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id"))
-ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
-
-# Save output as non-spatial and without coordinates
-ssl_narrow_nocoords <- ssl_narrow %>% dplyr::select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
-saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds")
-write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.csv")
-
-# Make it spatial again
-ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
-
-# Save output as spatial object
-st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.shp")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
