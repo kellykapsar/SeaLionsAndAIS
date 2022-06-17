@@ -102,7 +102,7 @@ ssl5 <- foreach(i = 1:length(seasonhr_ids), .packages = c("raster", "sf", "dplyr
   
   # FISH
   costdistfish <- extractcostdist(pts, fish, land, hr)
-  pts$prox_fish_km_new <- NA
+  pts$prox_fish_km <- NA
   
   if(class(costdistfish) == "logical"){
     print(paste0(seasonhr_ids[i], " removed."))
@@ -110,11 +110,11 @@ ssl5 <- foreach(i = 1:length(seasonhr_ids), .packages = c("raster", "sf", "dplyr
   valsfish <- st_intersects(pts, costdistfish)
   
   tempfish  <- lapply(1:length(pts$easting), function(x){mean(costdistfish$layer[valsfish[[x]]])})
-  pts$prox_fish_km_new <- unlist(tempfish)
+  pts$prox_fish_km <- unlist(tempfish)
   
   # SHIPS 
   costdist <- extractcostdist(pts, nofish, land, hr)
-  pts$prox_ship_km_new <- NA
+  pts$prox_ship_km <- NA
   
   if(class(costdist) == "logical"){
     next
@@ -122,7 +122,7 @@ ssl5 <- foreach(i = 1:length(seasonhr_ids), .packages = c("raster", "sf", "dplyr
   vals <- st_intersects(pts, costdist)
   
   temp  <- lapply(1:length(pts$easting), function(x){mean(costdist$layer[vals[[x]]])})
-  pts$prox_ship_km_new <- unlist(temp)
+  pts$prox_ship_km <- unlist(temp)
   
   saveRDS(pts, paste0("../ssl5/",seasonhr_ids[i],".rds"))
 }
