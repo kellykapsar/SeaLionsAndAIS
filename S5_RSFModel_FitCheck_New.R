@@ -174,14 +174,14 @@ getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
 ################################################################################
 
 # Set result  directory for individual all combination models
-comboresults <- paste(resultdir, "SSL_IndlAllCombos_2022-03-14/", sep = "")
+comboresults <- paste(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/", sep = "")
 # set it
 setwd(comboresults)
 # Get list of all files in results directory
 files <- list.files()
 
 # Load in rs_data
-rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds")
+rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.rds")
 
 # Summarize number of choices per ind'l 
 choices <- rs_data %>% group_by(ind_id) %>% summarize(nchoices = length(unique(choice_id)))
@@ -354,12 +354,12 @@ pctcovarsall$nmodels
 ######### Chi-square on Top Models ######### 
 ############################################
 
-# # # model path
-# comp.modpath <- paste(resultdir, "/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
-# # 
-# # # read in compiled model object
-# mod <- readRDS(comp.modpath)
-# 
+# # model path
+comp.modpath <- paste(resultdir, "/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
+#
+# # read in compiled model object
+mod <- readRDS(comp.modpath)
+
 # #### IMPORTED RESULTS OF THIS CODE BELOW
 # topfitlst <- list()
 # 
@@ -419,8 +419,8 @@ pctcovarsall$nmodels
 #   topfitlst <- c(topfitlst, fit)
 # 
 # }
-# saveRDS(topfitlst, paste0(resultdir, "/SSL_IndlAllCombos_2022-03-14/TopModelFits_ChiSquare.rds"))
-topfitlst <- readRDS(paste0(resultdir, "/SSL_IndlAllCombos_2022-03-14/TopModelFits_ChiSquare.rds"))
+# saveRDS(topfitlst, paste0(resultdir, "/SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
+topfitlst <- readRDS(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
@@ -466,7 +466,7 @@ for(i in 1:11){
     theme(axis.text.x = element_text(size=25), 
           axis.text.y = element_text(size=25)) +
     ylab("")
-  ggsave(paste0(resultdir, "SSL_IndlAllCombos_2022-03-14/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
+  ggsave(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
 }
 
 # Other miscellaneous plots 
@@ -517,7 +517,7 @@ p1 <- ggplot(topmodcounts, aes(fill=factor(Significance, levels=c("sigpos", "sig
         legend.position=c(0.8,0.8),
         panel.grid = element_blank())
 p1
-ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_2022-03-14/SignificanceCountsBarPlot.png"), 
+ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/SignificanceCountsBarPlot.png"), 
 width=8, height=8, units="in")
 
 
