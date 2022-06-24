@@ -40,7 +40,7 @@ ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
 ssl$used <- factor(1)
 
 # Create an ID column that identifies each unique individual/year/week combination
-ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, ssl$year, ssl$weekofyear))
+ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, substr(ssl$weekofyear,1,4), substr(ssl$weekofyear,7,8)))
 
 # st_write(ssl, "../Data_Processed/Telemetry/USedLocs_Clean.shp")
 
