@@ -136,7 +136,7 @@ sealis$date <- round(sealis$date, "mins")
 
 # Create various date reference categories for future modeling 
 sealis$fortnight <- ceiling(lubridate::week(sealis$date) / 2)
-sealis$weekofyear <- lubridate::isoweek(sealis$date)
+sealis$weekofyear <-  format(sealis$date, "%G-W%V")
 sealis$month <- lubridate::month(sealis$date)
 sealis$year <- lubridate::year(sealis$date)
 sealis$dayofyear <- lubridate::date(sealis$date)
