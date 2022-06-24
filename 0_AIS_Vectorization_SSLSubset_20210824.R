@@ -140,7 +140,7 @@ SSL.AIS <- function(csvList, minlon, maxlon, minlat, maxlat, cellsize=1000, outp
   start <- proc.time()
   
   # Evaluate week of year for each point
-  AISspeed$week <- lubridate::week(AISspeed$Time)
+  AISspeed$week <- format(as.Date(AISspeed$Time), "%G-W%V")
   
   # Save points for potential movement animation later one
   st_write(AISspeed, paste0("../Data_Processed_SSLWeekly/Points/Points_", MoName, ".shp"))
