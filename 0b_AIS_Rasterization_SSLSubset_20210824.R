@@ -119,7 +119,6 @@ t <- readRDS("../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reproj
 
 cellsize <- 250
 outproj <- 32605
-vectorName <- t
 
 t <- st_transform(t, outproj)
 
