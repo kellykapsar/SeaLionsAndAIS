@@ -53,36 +53,12 @@ slope <- raster("../Data_Processed/slope.tif") %>% raster::mask(landmask, maskva
 
 ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
 fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
-eke1 <- readRDS("../Data_Processed/eke_weekly_20181101-20200531.rds")
-eke2 <- readRDS("../Data_Processed/eke_weekly_20200601-20200731.rds")
-ssh1 <- readRDS("../Data_Processed/ssh_weekly_20181101-20200531.rds")
-ssh2 <- readRDS("../Data_Processed/ssh_weekly_20200601-20200731.rds")
-load("../Data_Processed/sst_weekly.rda")
-load("../Data_Processed/wind_weekly.rda")
+sst <- readRDS("../Data_Processed/sst_weekly.rds")
+wind <- readRDS("../Data_Processed/wind_weekly.rds")
 
 # Create a list of all covariate files  and check resolution 
-raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, eke1, eke2, ssh1, ssh2, wind)
+raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
 rasres <- lapply(raslist, function(x) res(x)/1000)
-
-# Create a vector of covar names 
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "ship", "fish", "sst", "eke", "ssh", "wind", "prox_fish_km", "prox_ship_km")
-
-# Function to identify random points within a set of polygons 
-# This also extracts raster values for static variables in the covar stack 
-# Accounts for points on land 
-
-custom_extract_avail <- function(poly, covarstack, npts = 5){
-  maskstack <- raster::mask(covarstack, poly)
-  df <-  as.data.frame(sampleRandom(x=maskstack, size = npts, na.rm = TRUE, ext = as(poly, "Spatial"), xy = TRUE))
-  df$used <- factor(0)
-  df$date <- poly$date
-  df$deploy_id <- poly$deploy_id
-  df$choice_id <- poly$choice_id
-  df$year <- poly$year
-  df$month <- poly$month
-  df$weekofyear <- poly$weekofyear
-  return(df)
-}
 
 # Extract dynamic covariate data at used locations 
 ### Modified from FROM AMT PACKAGE
@@ -98,7 +74,7 @@ extract_covar_var_time_custom <- function(
   t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week
   # Same week of year as lubridate::isoweek(ssl_dates$date)
   wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
-  ev <- raster::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
+  ev <- terra::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
   cov_val <- ev[cbind(seq_along(wr), wr)] # select only the relevant time slice for each location
   return(cov_val)
 }
@@ -111,13 +87,13 @@ extract_covar_var_time_custom <- function(
 ssl_simple <- ssl %>% select(weeklyhr_id, date, lon, lat)
 
 # Turn into an amt track
-trk <- mk_track(st_drop_geometry(ssl_simple), .x=lon, .y=lat, .t=date, id = weeklyhr_id, date=date,
+trk <- amt::make_track(st_drop_geometry(ssl_simple), .x=lon, .y=lat, .t=date, id = weeklyhr_id, date=date,
                 crs = CRS("+init=epsg:4326"))
 trk.class<-class(trk)
 
 # Calculate time of day based on lat/lon and timestamp
-# trk <- trk %>% time_of_day()
-# class(trk) <- trk.class
+trk <- trk %>% time_of_day()
+class(trk) <- trk.class
 
 #' Now, we can transform back to geographic coordinates
 trk <- amt::transform_coords(trk, CRS("+init=epsg:32605"))
@@ -163,20 +139,8 @@ for(i in 1:length(unique(trk$id))){
   avail_pts <- rbind(avail_pts, landpts)
 }
 
-# Clean up column names in available points 
-avail_pts$deploy_id <- substr(avail_pts$weeklyhr_id, 1, 13)
-avail_pts$year <- substr(avail_pts$weeklyhr_id, 14, 17)
-avail_pts$weekofyear <- substr(avail_pts$weeklyhr_id, 18, 19)
-
-avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
-                                  year = as.numeric(substr(avail_pts$weeklyhr_id, 14, 17)),
-                                  weekofyear = as.numeric(substr(avail_pts$weeklyhr_id, 18, 19)), 
-                                  used = 0) %>% 
-                           rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
-                           select(-case_)
-
 # Save output polygons 
-st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20211104.shp")
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20220705.shp")
 
 
 ssl_new <- ssl %>% 
@@ -196,6 +160,14 @@ avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id")
 # ssl_datetest <- left_join(ssl, ssl_dates, by= "weeklyhr_id")
 # length(which(ssl_datetest$weekofyear.x != ssl_datetest$weekofyear.y))
 
+# Clean up column names in available points 
+avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
+                                  year = lubridate::year(avail_pts$date),
+                                  weekofyear = lubridate::isoweek(avail_pts$date), 
+                                  used = factor(0)) %>% 
+                           rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
+                           select(-case_)
+
 
 # Merge used with available 
 all_pts <- avail_pts %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
@@ -209,207 +181,12 @@ ssl4$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$dat
 ssl4$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=wind)
 ssl4$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=ship)
 ssl4$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=fish)
-ssl4a <- ssl4 %>% filter(!date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh1),
-  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke1)
-)
-ssl4b <- ssl4 %>% filter(date > as.POSIXct("2020-06-01", format="%Y-%m-%d")) %>% mutate(
-  ssh = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=ssh2),
-  eke = extract_covar_var_time_custom(xy= st_coordinates(.), t = .data$date, covariates=eke2)
-)
-ssl4 <- rbind(ssl4a, ssl4b)
 
 # convert column names to lowercase 
 colnames(ssl4) <- tolower(colnames(ssl4)) 
-```
 
-```{r proximity calculations}
-##################################################################
-############# CALCULATE PROXIMITY TO FISHING VESSELS ############# 
-##################################################################
-
-# Import ship data, create sf objects, combine into one sf object, and generate year value 
-ships<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
-ships <- lapply(ships, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% st_transform(prj)})
-ships <- do.call(rbind, ships) # Combine all ships into one sf object
-ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
-
-# Standardize dates 
-ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format(., "%G-W%V")
-ssl4$date <- format(ssl4$date, "%G-W%V")
-
-# Create nested shipping data frame 
-ships_nest <- ships[which(ships$AIS_Typ != "Fishing"),] %>% group_nest(date)
-fish_nest <- ships[which(ships$AIS_Typ == "Fishing"),] %>% group_nest(date)
-
-# Find nearest line to each point 
-prox <- function(points, lines){
-  # Isolate out only lines from the week of interest and extract from nested data
-  l <- lines[which(lines$date == points$date[1]),] %>% 
-        unnest(., cols=c(data)) %>%
-        mutate(geometry = st_sfc(geometry)) %>%
-        st_as_sf()
-  # Calculate nearest line to each point
-  nearest <- st_nearest_feature(points, l)
-  # Calculate distance to that line, convert to kilometers, and round 
-  dist <- round(as.numeric(st_distance(points, l[nearest,], by_element=T))/1000, 4) 
-  return(dist)
-}
-
-# TAKES ~1.5 HRS
-start <- proc.time()
-newdata <- ssl4 %>% # to sample random points: sample(1:length(ssl4$weeklyhr_id), 1000, replace=F)
-             group_nest(date, keep=TRUE) %>% # Create set of nested data frames by week
-             rename(date_outer = date) %>% 
-             mutate(data = purrr::map(data, # Go within the data frame 
-                ~mutate(.x, prox_ship_km = prox(.x, ships_nest), 
-                            prox_fish_km = prox(.x, fish_nest)))) %>% # Add new columns within each df to calculate proximity
-             unnest(cols=c(data)) %>%         
-             mutate(geometry = st_sfc(geometry)) %>%
-             st_as_sf()
-proc.time()-start
-
-# Boundary for AIS data acquisition
-aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj)
-
-# Identify SSL locations outside the AIS boundaries
-newdata$ais_bounds <- st_intersects(newdata, aisbound_sf, sparse=FALSE)
-
-ssl4 <- newdata
-
-save(ssl4, file="../Data_Processed/Telemetry/TEMP.rda")
-# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
-```
-
-```{r final cleaning and save}
-
-## SECTION MOVED TO 2C AFTER LCP CALCULATIONS WERE ADDED IN STEP 2B. 
-
-#################################################
-############# CLEAN UP DATA AND SAVE ############ 
-#################################################
-
-# # Turn used into a factor, log transform skewed vars, and drop geometry
-# ssl_orig <- ssl4 %>% mutate(used = as.factor(used), 
-#                            logfish = log(fish+1), 
-#                            logship = log(ship+1)) %>% 
-#                     st_drop_geometry()
-# 
-# # Create an individual id
-# ssl <- ssl %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
-# 
-# # Reorder columns to a more logical order 
-# covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
-# 
-# colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
-# 
-# ssl <- ssl[,colorder] %>% as.data.frame()
-# 
-# # Order data appropriately 
-# ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
-# 
-# # Recalculate choice sets now that short ones have been removed
-# ssl$choice_id <- rep(1:(length(ssl$choice_id)/6), each=6)
-
-```
-
-```{r save output}
-
-## SECTION MOVED TO 2C AFTER LCP CALCULATIONS WERE ADDED IN STEP 2B. 
-
-############################################################
-############## SAVE OUTPUT WITH ALL VARIABLES ############## 
-############################################################
-
-# # NOTE: I'M KEEPING INCOMPLETE CASES IN THE DATA SET SINCE IT WON'T BE USED FOR ANALYSIS
-# # THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
-# 
-# # Save output as non-spatial and without coordinates
-# saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.rds")
-# write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.csv")
-# 
-# # Make it spatial again
-# ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
-# 
-# # Save output as spatial object
-# st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20211104.shp", overwrite=T)
-# 
-# ########################################################### 
-# ############## SAVE OUTPUT WITHOUT SSH & EKE ############## 
-# ###########################################################
-# 
-# # Remove coarse scale abiotic variables and select only complete cases 
-# ssl_narrow <- ssl %>% select(-ssh, -eke) %>% na.omit() %>% as.data.frame()
-# 
-# # Remove choice_ids with insufficient sample size due to NA values 
-# tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
-# ssl_narrow <- left_join(ssl_narrow, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id"))
-# ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
-# 
-# # Save output as non-spatial and without coordinates
-# ssl_narrow_nocoords <- ssl_narrow %>% select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
-# saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.rds")
-# write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.csv")
-# 
-# # Make it spatial again
-# ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
-# 
-# # Save output as spatial object
-# st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20211104.shp")
-# # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
-
-```
-
-
-```{r testing contamination, eval=FALSE} 
-
-avail1 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_SpeedBuff_20211003.rds") 
-avail2 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_20kmBuff_20211003.rds") 
-avail3 <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_5kmCell_20211003.rds") 
-
-contamination_calc <- function(usedandavail){
-    used1 <- usedandavail %>% 
-             filter(used==1) %>% 
-             dplyr::select(-used)
-    temp <- left_join(usedandavail, used1, by="choice_id") %>% filter(used==0) 
-    
-    sames <- temp %>% mutate(bathymetry = ifelse(bathymetry.x == bathymetry.y, 1, 0),
-                         dist_land = ifelse(dist_land.x == dist_land.y, 1, 0),
-                         dist_500m = ifelse(dist_500m.x == dist_500m.y, 1, 0),
-                         slope = ifelse(slope.x == slope.y, 1, 0),
-                         ship = ifelse(ship.x == ship.y, 1, 0),
-                         fish = ifelse(fish.x == fish.y, 1, 0),
-                         sst = ifelse(sst.x == sst.y, 1, 0),
-                         eke = ifelse(eke.x == eke.y, 1, 0),
-                         ssh = ifelse(ssh.x == ssh.y, 1, 0),
-                         wind = ifelse(wind.x == wind.y, 1, 0),
-                          ) %>% 
-                      dplyr::select(choice_id, bathymetry, dist_land, dist_500m, slope, ship, fish, sst, eke, ssh, wind)
-
-     sames <- as.data.frame(apply(sames, 2, as.numeric))
-     grand_contamination <- round(apply(sames, 2, function(x){sum(x, na.rm=T)})/length(sames$choice_id), 2)
-     return(as.data.frame(grand_contamination))
-     #    
-     # contam <- sames %>% 
-     #            group_by(choice_id) %>%
-     #            summarize(Bathymetry_con=sum(Bathymetry)/5,
-     #                      dist_land_con=sum(dist_land)/5,
-     #                      dist_500m_con=sum(dist_500m)/5,
-     #                      slope_con=sum(slope)/5,
-     #                      ship_con=sum(ship)/5,
-     #                      fish_con=sum(fish)/5,
-     #                      sst_con=sum(sst)/5,
-     #                      eke_con=sum(eke)/5,
-     #                      ssh_con=sum(ssh)/5,
-     #                      wind_con=sum(wind)/5
-     #                      )
-
-}
-
-contamination <- cbind(contamination_calc(avail1), contamination_calc(avail2), contamination_calc(avail3)) 
-colnames(contamination) <- c("rad_spd", "rad_20km", "resamp_5km")
-
-
+save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220705.rda")
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 ```
 
 
