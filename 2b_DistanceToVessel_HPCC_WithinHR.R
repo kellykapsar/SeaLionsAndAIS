@@ -10,21 +10,19 @@ library(foreach)
 library(doParallel)
 
 # weekly homerange polygons
-hr <- st_read("../Data/Homerange_KDE_weekly_20211104.shp")
-
-hr$deploy_id <- substr(hr$wklyhr_, 1, 13)
-hr$year <- substr(hr$wklyhr_, 14,17)
-hr$week <- substr(hr$wklyhr_, 18,19)
+hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20220627.shp")
 
 # Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
 # ssl5 <- readRDS(file="../Data/ssl5.rds")
-load(file="../Data/TEMP.rda")
+load(file="../Data_Processed/Telemetry/TEMP_20220627.rda")
+ssl4$date <- format(ssl4$date, "%G-W%V")
 
 # Vessel tracklines
-ships <- readRDS( "../Data/AIS/AllVessels_Reprojected.rds")
+ships <- readRDS( "../Data_Processed/AIS/AllVessels_Reprojected.rds")
+# ships <- readRDS( "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 
 # Land raster
-land <- raster("../Data/Bathymetry.tif")
+land <- raster("../Data_Processed/Bathymetry.tif")
 land[values(land) > 0] <- 1
 land[values(land) < 0] <- NA
 
@@ -47,6 +45,8 @@ ships$date <- as.Date(substr(ships$AIS_ID, 11, 18),format = "%Y%m%d") %>% format
 # ID unique SSL/week combos 
 weeklyhr_ids <- unique(ssl4$weeklyhr_id)
 
+print(paste0("Processing ", length(weeklyhr_ids), " total weeklyhr_ids."))
+
 # Separate fishing vessel from other vesels 
 nofish <- ships[ships$AIS_Typ != "Fishing",]
 fish <- ships[ships$AIS_Typ == "Fishing",]
@@ -56,9 +56,7 @@ fish <- ships[ships$AIS_Typ == "Fishing",]
 # of land pixels 
 extractcostdist <- function(pts, lines, land, hrs){
   # Id correct homerange polygon 
-  polyhr <- hrs[which(hrs$deploy_id == pts$deploy_id[1] & 
-                        hrs$year == pts$year[1] &
-                        hrs$week == pts$weekofyear[1]),]
+  polyhr <- hrs[which(hrs$wklyhr_ == pts$weeklyhr_id[1]),]
   polyhr <- st_buffer(polyhr, 100000)
   # Id lines within the date range
   lines <- lines[lines$date == pts$date[1],]
@@ -91,7 +89,7 @@ extractcostdist <- function(pts, lines, land, hrs){
 # Extract pixel values from cost distance raster
 start <- proc.time()
 
-ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr", "tidyr", "stars")) %dopar%{
+ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr", "tidyr", "stars", "fasterize")) %dopar%{
   print(i)
   pts <- ssl4[which(ssl4$weeklyhr_id == weeklyhr_ids[i]),]
   
@@ -104,7 +102,7 @@ ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr
   }
   valsfish <- st_intersects(pts, costdistfish)
   
-  tempfish  <- lapply(1:length(pts$date_outer), function(x){mean(costdistfish$layer[valsfish[[x]]])})
+  tempfish  <- lapply(1:length(pts$date), function(x){mean(costdistfish$layer[valsfish[[x]]])})
   pts$prox_fish_km_new <- unlist(tempfish)
   
   # SHIPS 
@@ -116,8 +114,9 @@ ssl5 <- foreach(i = 1:length(weeklyhr_ids), .packages = c("raster", "sf", "dplyr
   }
   vals <- st_intersects(pts, costdist)
   
-  temp  <- lapply(1:length(pts$date_outer), function(x){mean(costdist$layer[vals[[x]]])})
+  temp  <- lapply(1:length(pts$date), function(x){mean(costdist$layer[vals[[x]]])})
   pts$prox_ship_km_new <- unlist(temp)
   
-  saveRDS(pts, paste0("../Data/ssl5/",weeklyhr_ids[i],".rds"))
+  saveRDS(pts, paste0("../ssl5/",weeklyhr_ids[i],".rds"))
+  print(paste0(i, " has been saved."))
 }
