@@ -10,11 +10,11 @@ library(foreach)
 library(doParallel)
 
 # weekly homerange polygons
-hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20220627.shp")
+hr <- st_read("../Data_Processed/Telemetry/Homerange_KDE_weekly_20220705.shp")
 
 # Sea lion data from 2_SSLAvailAndCovarExtraction.Rmd
 # ssl5 <- readRDS(file="../Data/ssl5.rds")
-load(file="../Data_Processed/Telemetry/TEMP_20220627.rda")
+load(file="../Data_Processed/Telemetry/TEMP_20220705.rda")
 ssl4$date <- format(ssl4$date, "%G-W%V")
 
 # Vessel tracklines
