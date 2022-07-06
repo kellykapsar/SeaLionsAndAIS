@@ -76,7 +76,7 @@ for(i in 1:length(unique(ssl_orig$weeklyhr_id))){
 }
 
 # Reorder columns to a more logical order 
-covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "eke", "ssh", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km", "prox_fish_km_new", "prox_ship_km_new")
+covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
 
 colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
 
