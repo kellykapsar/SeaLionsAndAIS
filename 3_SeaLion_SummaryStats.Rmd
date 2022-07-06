@@ -63,10 +63,10 @@ Pull in SSL data.
 
 ```{r}
 
-ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds") 
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220706.rds") 
 
-covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km", "prox_fish_km_new", "prox_ship_km_new")
-covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "Euc. Distance to fishing (km)", "Euc. Distance to shipping (km)", "LCP Distance to fishing (km)", "LCP Distance to shipping (km)")
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "LCP Distance to fishing (km)", "LCP Distance to shipping (km)")
 
 # Get colors for individuals
 getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
@@ -188,16 +188,6 @@ ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, logfish, lo
 ```
 
 ```{r}
-
-# Remove old Euclidean distance calculations and calculate pairwise correlations
-ssl_new <- ssl %>% 
-  dplyr::select(-prox_ship_km, -prox_fish_km) %>% 
-  rename(prox_ship_km = prox_ship_km_new, prox_fish_km = prox_fish_km_new)
-
-# Double check to make sure it worked
-length(which(ssl$prox_fish_km_new == ssl_new$prox_fish_km))
-length(which(ssl$prox_ship_km_new == ssl_new$prox_ship_km))
-
 # Create lookup table for matching matrix column number to covariate name 
 # ONLY FOR USE ON RSF_ARRAY, NOT RS_DATA....Otherwise column numbers will be messed up
 # Remove Euclidean distance from the analysis 
