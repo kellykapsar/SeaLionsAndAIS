@@ -37,7 +37,7 @@ study <- coords %>%
 
 # Read in clean, non-land ssl used locations
 ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
-ssl$used <- factor(1)
+ssl$used <- 1
 
 # Create an ID column that identifies each unique individual/year/week combination
 ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, substr(ssl$weekofyear,1,4), substr(ssl$weekofyear,7,8)))
@@ -164,7 +164,7 @@ avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id")
 avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
                                   year = lubridate::year(avail_pts$date),
                                   weekofyear = lubridate::isoweek(avail_pts$date), 
-                                  used = factor(0)) %>% 
+                                  used = 0) %>% 
                            rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
                            select(-case_)
 
@@ -185,7 +185,7 @@ ssl4$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$da
 # convert column names to lowercase 
 colnames(ssl4) <- tolower(colnames(ssl4)) 
 
-save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220705.rda")
+save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220706.rda")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 ```
 
