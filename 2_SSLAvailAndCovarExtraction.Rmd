@@ -186,7 +186,7 @@ ssl4$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$da
 colnames(ssl4) <- tolower(colnames(ssl4)) 
 
 save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220705.rda")
-browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 ```
 
 
