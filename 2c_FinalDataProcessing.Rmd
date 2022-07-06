@@ -25,14 +25,14 @@ library(ggmap)
 
 # files <- list.files("../Data_Processed/Telemetry/ssl5")
 # alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5/", x))})
-# ssl5 <- data.frame()
+# test <- data.frame()
 # 
 # for(i in 1:length(alldat)){
 #   print(i)
 #   test <- rbind(test, alldat[[i]])
 # }
-# saveRDS(test, "../Data_Processed/Telemetry/ssl5/ssl5.rds")
-
+# # saveRDS(test, "../Data_Processed/Telemetry/ssl5/ssl5.rds")
+# 
 ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5/ssl5.rds")
 
 
@@ -66,8 +66,8 @@ for(i in 1:length(unique(ssl_orig$weeklyhr_id))){
   used <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 1)
   avail <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 0)
   
-  used$choice_id <- (nextid+1):(length(used$date)+nextid)
-  avail$choice_id <- rep((nextid+1):(length(avail$date_outer)/5 + nextid), each=5)
+  used$choice_id <- (nextid+1):(length(used$easting)+nextid)
+  avail$choice_id <- rep((nextid+1):(length(avail$easting)/5 + nextid), each=5)
   
   temp <- rbind(used, avail)
   ssl <- rbind(ssl, temp)
@@ -100,7 +100,7 @@ ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
 
 # Save output as non-spatial and without coordinates
 saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220706.rds")
-write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220615.csv")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220706.csv")
 
 # Make it spatial again
 ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
@@ -122,14 +122,14 @@ ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
 
 # Save output as non-spatial and without coordinates
 ssl_narrow_nocoords <- ssl_narrow %>% dplyr::select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
-saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.rds")
-write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.csv")
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220706.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220706.csv")
 
 # Make it spatial again
 ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.shp")
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220706.shp")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
