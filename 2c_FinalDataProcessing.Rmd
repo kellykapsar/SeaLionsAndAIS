@@ -99,21 +99,21 @@ ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
 # THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
 
 # Save output as non-spatial and without coordinates
-saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.rds")
-write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.csv")
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220706.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220615.csv")
 
 # Make it spatial again
 ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLVars_20220314.shp")
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_ALLCases_20220706.shp")
 
-########################################################### 
-############## SAVE OUTPUT WITHOUT SSH & EKE ############## 
-###########################################################
+################################################################## 
+############## SAVE OUTPUT WITH ONLY COMPLETE CASES ############## 
+##################################################################
 
 # Remove coarse scale abiotic variables and select only complete cases 
-ssl_narrow <- ssl %>% dplyr::select(-ssh, -eke) %>% na.omit() %>% as.data.frame()
+ssl_narrow <- ssl %>% na.omit() %>% as.data.frame()
 
 # Remove choice_ids with insufficient sample size due to NA values 
 tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
@@ -122,14 +122,14 @@ ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
 
 # Save output as non-spatial and without coordinates
 ssl_narrow_nocoords <- ssl_narrow %>% dplyr::select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
-saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.rds")
-write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.csv")
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.csv")
 
 # Make it spatial again
 ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220314.shp")
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220615.shp")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
