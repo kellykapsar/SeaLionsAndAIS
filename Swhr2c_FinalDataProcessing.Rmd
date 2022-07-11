@@ -1,0 +1,166 @@
+---
+title: "Untitled"
+author: "Kelly Kapsar"
+date: "3/11/2022"
+output: html_document
+---
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(sf)
+library(raster)
+library(ggplot2)
+library(scales)
+library(ggmap)
+
+```
+
+
+```{r Load in data}
+# Load in sea lion data 
+# Came from script 2b_DistanceToVessel_HPCC.R
+# Comes as one file for each ssl/week combo that must be merged together
+# I merged them and saved the output and now I just load the output bc it takes a while to merge
+
+files <- list.files("../Data_Processed/Telemetry/ssl5_swhr")
+alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5_swhr/", x))})
+test <- data.frame()
+
+for(i in 1:length(alldat)){
+  print(i)
+  test <- rbind(test, alldat[[i]])
+}
+# saveRDS(test, "../Data_Processed/Telemetry/ssl5_swhr/ssl5_swhr.rds")
+# 
+ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5_swhr/ssl5_swhr.rds")
+
+
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
+```
+
+```{r extract seasonal sst, wind, fish, and ship from weekly used and available points}
+
+# Currently the ssl5 object has weekly sst, wind, fish, and ship values that were extracted during the 2_SSLAvailAndCovarExtraction.R script. 
+# This script takes those columns and replaces the values with seasonal data derived from the S1b_CovariateDataProcessing_Seasonal.Rmd script. 
+# Extract dynamic seasonal covariate values at used and available locations 
+
+
+extract_covar_var_time_custom <- function(
+  xy, t, covariates) {
+
+  t_covar <- raster::getZ(covariates)
+  wr <- sapply(t, function(x) which(x == t_covar)) # Identify which slice to select
+  ev <- raster::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
+  cov_val <- ev[cbind(seq_along(wr), wr)] # select only the relevant time slice for each location
+  return(cov_val)
+}
+
+ship <- readRDS("../Data_Processed/AIS_AllOther_Season.rds") 
+fish <- readRDS("../Data_Processed/AIS_Fishing_Season.rds")
+sst <- readRDS("../Data_Processed/sst_season.rds")
+wind <- readRDS("../Data_Processed/wind_season.rds")
+
+ssl5$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl5), t = ssl5$season, covariates=sst)
+ssl5$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl5), t = ssl5$season, covariates=wind)
+ssl5$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl5), t = ssl5$season, covariates=ship)
+ssl5$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl5), t = ssl5$season, covariates=fish)
+
+
+```
+
+
+```{r final cleaning and save}
+
+#################################################
+############# CLEAN UP DATA AND SAVE ############ 
+#################################################
+
+# Turn used into a factor, log transform skewed vars, and drop geometry
+ssl_orig <- ssl5 %>% mutate(used = as.factor(used), 
+                           logfish = log(fish+1), 
+                           logship = log(ship+1)) %>% 
+                    st_drop_geometry()
+
+# Create an individual id
+ssl_orig <- ssl_orig %>% group_by(deploy_id) %>% mutate(ind_id = cur_group_id())
+
+# Create a choice_id
+ssl <- data.frame()
+weeklyhr_ids <- unique(ssl_orig$weeklyhr_id)
+nextid <- 0
+
+for(i in 1:length(unique(ssl_orig$weeklyhr_id))){
+  print(i)
+  used <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 1)
+  avail <- ssl_orig %>% filter(weeklyhr_id == weeklyhr_ids[[i]], used == 0)
+  
+  used$choice_id <- (nextid+1):(length(used$easting)+nextid)
+  avail$choice_id <- rep((nextid+1):(length(avail$easting)/5 + nextid), each=5)
+  
+  temp <- rbind(used, avail)
+  ssl <- rbind(ssl, temp)
+  
+  nextid <- max(ssl$choice_id)
+}
+
+# Reorder columns to a more logical order 
+covar_names_new <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+
+colorder <- c("deploy_id", "ind_id", "weeklyhr_id", "year", "choice_id", "used", "northing", "easting", all_of(covar_names_new))
+
+ssl <- ssl[,colorder] %>% as.data.frame()
+
+# Order data appropriately 
+ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
+
+
+```
+
+```{r save output}
+
+
+############################################################
+############## SAVE OUTPUT WITH ALL VARIABLES ############## 
+############################################################
+
+# NOTE: I'M KEEPING INCOMPLETE CASES IN THE DATA SET SINCE IT WON'T BE USED FOR ANALYSIS
+# THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
+
+# Save output as non-spatial and without coordinates
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.csv")
+
+# Make it spatial again
+ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.shp")
+
+################################################################## 
+############## SAVE OUTPUT WITH ONLY COMPLETE CASES ############## 
+##################################################################
+
+# Remove coarse scale abiotic variables and select only complete cases 
+ssl_narrow <- ssl %>% na.omit() %>% as.data.frame()
+
+# Remove choice_ids with insufficient sample size due to NA values 
+tooshort <- ssl_narrow %>% group_by(weeklyhr_id, choice_id) %>% summarize(n=n()) %>% filter(n < 6) %>% mutate(tooshort=1)
+ssl_narrow <- left_join(ssl_narrow, tooshort, by=c("weeklyhr_id" = "weeklyhr_id", "choice_id" = "choice_id"))
+ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
+
+# Save output as non-spatial and without coordinates
+ssl_narrow_nocoords <- ssl_narrow %>% dplyr::select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.csv")
+
+# Make it spatial again
+ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
+
+# Save output as spatial object
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.shp")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+
+```
