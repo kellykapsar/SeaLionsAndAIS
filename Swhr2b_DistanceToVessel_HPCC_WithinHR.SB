@@ -1,0 +1,34 @@
+#!/bin/bash -login 
+
+# specify resources needed. 
+# Number of nodes needed 
+#SBATCH --nodes=1
+#
+# Tasks per node
+#SBATCH --ntasks-per-node=1
+# 
+# Processors per task:
+#SBATCH --cpus-per-task=4
+#
+# how much memory?
+#SBATCH --mem=120gb
+# 
+# how long?
+#SBATCH --time=012:00:00
+# 
+# Standard out and error:
+#SBATCH --output=%x-%j.SLURMout
+# 
+# change to current directory
+cd $SLURM_SUBMIT_DIR
+
+
+
+# run R commandline with the Rscript command
+module purge
+module load GCC/8.3.0 OpenMPI/3.1.4 R/4.0.2 
+export R_LIBS_USER=/mnt/home/kapsarke/R_Lib/4.0.2
+Rscript Swhr2b_DistanceToVessel_HPCC_WithinHR.R
+
+# show information on resources used during job processing
+qstat –f ${PBS_JOBID} 
