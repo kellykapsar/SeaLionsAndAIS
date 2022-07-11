@@ -182,7 +182,7 @@ lapply(1:12, function(i){
 
 
 # Correlations between covariates 
-ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, logfish, logship, sst, prox_ship_km, prox_fish_km, prox_ship_km_new, prox_fish_km_new)%>% 
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, logfish, logship, sst, prox_ship_km, prox_fish_km)%>% 
   ggcorr(label=T)
 
 ```
@@ -201,7 +201,7 @@ getcovarcol <- function(colname, lookupvector){
 
 
 # Get a list of pairwise correlations >0.6 for each individual
-corrlist <- lapply(1:11, function(x) ssl_new %>% filter(ind_id == x) %>% 
+corrlist <- lapply(1:11, function(x) ssl %>% filter(ind_id == x) %>% 
                           dplyr::select(all_of(covar_names[1:10])) %>% 
                           corrr::correlate() %>% 
                           corrr::shave() %>% 
