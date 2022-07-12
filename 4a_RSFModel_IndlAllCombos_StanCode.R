@@ -4,9 +4,9 @@
 # PURPOSE: This code is for compiling the Stan model on the HPCC using the dev-
 #   intel14 node, so that either intel14 or intel16 nodes can run the job
 #   ERS1_step5_code_2017-01-12.qsub
-# AUTHOR: Kyle Redilla, RECaP Lab
+# AUTHOR: Kyle Redilla, RECaP Lab -- modified by Kelly Kapsar
 # CREATED: 2017-1-9
-# LAST UPDATED ON 2017-1-15
+# LAST UPDATED ON 2022-07-12
 ################################################################################
 # Open libraries
 library(rstan)
@@ -15,7 +15,7 @@ library(rstan)
 datestr <- format(Sys.time(), "%Y-%m-%d")
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
 workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
-resultdir <- "Results/SSL_IndlAllCombos_2022-03-13/"
+resultdir <- "Results/SSL_IndlAllCombos_2022-07-12/"
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
        dir.create(file.path(workdir, resultdir)), FALSE)
@@ -27,7 +27,8 @@ ifelse(!dir.exists(file.path(workdir, resultdir)),
 # Set working directory to scratch 
 setwd(workdir)
 # Specify path to write model to
-modpath <- paste(workdir, resultdir, "model.stan", sep = "")
+# modpath <- paste(workdir, resultdir, "model.stan", sep = "")
+modpath <- "C:/Users/Kelly Kapsar/Desktop/model.stan"
 
 # Write the stan model
 write(
@@ -66,12 +67,8 @@ write(
   , file = modpath)
 
 # Compile the model
-model <- stan_model(modpath)
+model <- rstan::stan_model(modpath)
 
 # Save the compiled model object
 comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
 saveRDS(model, file = comp.modpath)
-
-
-
-
