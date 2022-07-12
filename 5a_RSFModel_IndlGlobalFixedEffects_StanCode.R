@@ -9,13 +9,10 @@
 library(rstan)
 
 # Specify directories
-datestr <- format(Sys.time(), "%Y-%m-%d")
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
-workdir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/"
-# homedir <- "~Documents/SSL/" 
-# workdir <- "/mnt/scratch/kapsarke/Documents/SSL/"
-resultdir <- paste("Results/SSL_IndlGlobalFixedEffects_",
-                   datestr, "/", sep = "")
+resultdir <- paste(homedir, "Results/SSL_IndlAllCombos_2022-07-12/", sep = "")
+datestr <- format(Sys.time(), "%Y-%m-%d")
+
 # Creates result directory for this step on the specified date if not created
 ifelse(!dir.exists(file.path(workdir, resultdir)), 
        dir.create(file.path(workdir, resultdir)), FALSE)
@@ -90,7 +87,7 @@ write(
 model <- stan_model(modpath)
 
 # Save the compiled model object
-comp.modpath <- paste(workdir, resultdir, "model.rda", sep = "")
+comp.modpath <- paste(resultdir, "model.rda", sep = "")
 saveRDS(model, file = comp.modpath)
 
 
