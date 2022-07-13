@@ -23,16 +23,16 @@ library(ggmap)
 # Comes as one file for each ssl/week combo that must be merged together
 # I merged them and saved the output and now I just load the output bc it takes a while to merge
 
-files <- list.files("../Data_Processed/Telemetry/ssl5_swhr")
-alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5_swhr/", x))})
-test <- data.frame()
-
-for(i in 1:length(alldat)){
-  print(i)
-  test <- rbind(test, alldat[[i]])
-}
-# saveRDS(test, "../Data_Processed/Telemetry/ssl5_swhr/ssl5_swhr.rds")
+# files <- list.files("../Data_Processed/Telemetry/ssl5_swhr")
+# alldat <- lapply(files, function(x){readRDS(paste0("../Data_Processed/Telemetry/ssl5_swhr/", x))})
+# test <- data.frame()
 # 
+# for(i in 1:length(alldat)){
+#   print(i)
+#   test <- rbind(test, alldat[[i]])
+# }
+# saveRDS(test, "../Data_Processed/Telemetry/ssl5_swhr/ssl5_swhr.rds")
+
 ssl5 <- readRDS("../Data_Processed/Telemetry/ssl5_swhr/ssl5_swhr.rds")
 
 
@@ -130,14 +130,14 @@ ssl <- ssl %>% arrange(weeklyhr_id, choice_id, desc(used))
 # THIS WAY I CAN COMPARE WITH DATA SET BELOW TO SEE HOW MANY OBSERVATIONS WERE REMOVED 
 
 # Save output as non-spatial and without coordinates
-saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.rds")
-write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.csv")
+saveRDS(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220713.rds")
+write.csv(ssl, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220713.csv")
 
 # Make it spatial again
 ssl_sf <- st_as_sf(ssl, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220711.shp")
+st_write(ssl_sf, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_ALLCases_20220713.shp")
 
 ################################################################## 
 ############## SAVE OUTPUT WITH ONLY COMPLETE CASES ############## 
@@ -153,14 +153,14 @@ ssl_narrow <- ssl_narrow[which(is.na(ssl_narrow$tooshort)),]
 
 # Save output as non-spatial and without coordinates
 ssl_narrow_nocoords <- ssl_narrow %>% dplyr::select(-easting, -northing, -n, -tooshort) %>%  as.data.frame()
-saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.rds")
-write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.csv")
+saveRDS(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220713.rds")
+write.csv(ssl_narrow_nocoords, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220713.csv")
 
 # Make it spatial again
 ssl_narrow <- st_as_sf(ssl_narrow, coords = c("easting", "northing"), crs=prj, remove=FALSE)
 
 # Save output as spatial object
-st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220711.shp")
+st_write(ssl_narrow, "../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220713.shp")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
 
 ```
