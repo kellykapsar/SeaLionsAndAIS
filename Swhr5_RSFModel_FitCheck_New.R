@@ -16,7 +16,7 @@ set.seed(011392)
 
 # specify directories
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
-resultdir <- paste(homedir, "Results/", sep = "")
+resultdir <- paste(homedir, "Results/SSL_IndlAllCombos_Swhr_2022-07-15/", sep = "")
 datestr <- format(Sys.time(), "%Y-%m-%d")
 
 # Number of individuals to process
@@ -174,14 +174,12 @@ getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
 ################################################################################
 
 # Set result  directory for individual all combination models
-comboresults <- paste(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/", sep = "")
-# set it
-setwd(comboresults)
+setwd(resultdir)
 # Get list of all files in results directory
-files <- list.files()
+files <- list.files(resultdir)
 
 # Load in rs_data
-rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.rds")
+rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220713.rds")
 
 # Summarize number of choices per ind'l 
 choices <- rs_data %>% group_by(ind_id) %>% summarize(nchoices = length(unique(choice_id)))
@@ -228,7 +226,6 @@ for(i in 1:nInd){
   print(paste0("SSL ", i, " has ", length(which(neffs$n_eff < 100)), " Neff values less than 100"))
 }
 
-
 # saveRDS(megasumms, "./Megasumms.rds")
 # saveRDS(megaloos, "./Megaloos.rds")
 # saveRDS(megawaics, "./Megawaics.rds")
@@ -252,7 +249,7 @@ betanums <- list() # Order number for covariates in each top model (1-10)
 for(i in 1:nInd){
   
   # Import variable combinations for this individual 
-  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
+  mods <- read.csv(paste0(resultdir, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
   
   # Adjust column names 
   colnames(mods) <- covar_names
@@ -275,7 +272,7 @@ saveRDS(P_labellist, paste0(resultdir, "P_labellist.rds"))
 
 ############# Big central radar plot with labels
 
-mods <- read.csv(paste0(comboresults, "ModelVariableList_1.csv")) %>% dplyr::select(-X)
+mods <- read.csv(paste0(resultdir, "ModelVariableList_1.csv")) %>% dplyr::select(-X)
 # Adjust column names 
 colnames(mods) <- covar_names
 
@@ -297,7 +294,7 @@ pctcovars <- rbind(pctcovars, rep(0, 10))
 pctcovars <- rbind(pctcovars, rep(1, 10))
 rownames(pctcovars) <- c(1, "Min", "Max")
 pctcovars <- pctcovars[c("Max", "Min", 1),]
-filename <- paste0(comboresults, "RadarPlot_1BIG.png")
+filename <- paste0(resultdir, "RadarPlot_1BIG.png")
 png(filename = filename, width = 18, height=16, units="in", res=200)
 create_beautiful_radarchart_main(pctcovars, vlabels=covar_labels$Label, 
                             caxislabels = c(0, 0.25, 0.50, 0.75, 1), 
@@ -309,7 +306,7 @@ pctcovarsall <- data.frame()
 # All other covar plots without labels
 for(i in 1:nInd){
   
-  mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
+  mods <- read.csv(paste0(resultdir, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
   # Adjust column names 
   colnames(mods) <- covar_names
   
@@ -337,7 +334,7 @@ for(i in 1:nInd){
   rownames(pctcovars) <- c(i, "Min", "Max")
   pctcovars <- pctcovars[c("Max", "Min", i),]
   
-  filename <- paste0(comboresults, "RadarPlot_",i,".png")
+  filename <- paste0(resultdir, "RadarPlot_",i,".png")
   png(filename = filename)
   create_beautiful_radarchart_sub(pctcovars, vlabels="",
                               caxislabels = c(0, 0.25, 0.50, 0.75, 1),
@@ -356,73 +353,73 @@ pctcovarsall$nmodels
 ######### Chi-square on Top Models ######### 
 ############################################
 
-# # model path
-comp.modpath <- paste(resultdir, "/SSL_IndlGlobalFixedEffects_2021-11-09/model.rda", sep = "")
+# # # model path
+comp.modpath <- paste("./model.rda", sep = "")
 #
 # # read in compiled model object
 mod <- readRDS(comp.modpath)
 
-# #### IMPORTED RESULTS OF THIS CODE BELOW
-# topfitlst <- list()
-# 
-# for(i in 1:nInd){
-# 
-#   print(paste0("Processing individual: ", i))
-# 
-#   # Import variable combinations for this individual
-#   mods <- read.csv(paste0(comboresults, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
-# 
-#   # Adjust column names
-#   colnames(mods) <- covar_names
-# 
-#   # Identify covariates included in the top model
-#   betatruefalse <- mods[topmodnums[[i]],]
-#   betanums[[i]] <- which(betatruefalse[1,] == TRUE)
-# 
-#   # Calculate total number of covars in top model
-#   K <- sum(betatruefalse[1,])
-# 
-#   # Specify number of choices per choice set
-#   C <- 6
-# 
-#   # Isolate out individual data
-#   rs_data_subset <- rs_data[rs_data$ind_id == i, ]
-# 
-#   # Specify number of choice sets for this individual
-#   N <- length(unique(rs_data_subset$choice_id))
-# 
-#   # create design array with all covariates
-#   x <- rsf_array(rs_data, c(N, C, 10))
-# 
-#   # Remove unused covariates from data array
-#   x.temp <- x[,,betanums[[i]]]
-# 
-#   # must enter data into a list
-#   data <- list(
-#     C = C, K = K, N = N,
-#     x = x.temp,
-#     y = rep(1, N),
-#     obs=c(1,0,0,0,0,0),
-#     pos = diag(1, 6)
-#   )
-# 
-#   # initial values are best supplied as a function
-#   inits <- function(){
-#     list(
-#       beta = runif(K, -10, 10)
-#     )
-#   }
-#   # a character vector of parameters to monitor
-#   params <- c('beta', 'chis_obs', 'chis_sim')
-# 
-#   fit <- sampling(mod, data = data, pars = params, init = inits,
-#                   chains =4, iter = 1000, warmup = 200, thin = 1)
-# 
-#   topfitlst <- c(topfitlst, fit)
-# 
-# }
-# saveRDS(topfitlst, paste0(resultdir, "/SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
-topfitlst <- readRDS(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
+#### IMPORTED RESULTS OF THIS CODE BELOW
+topfitlst <- list()
+
+for(i in 1:nInd){
+
+  print(paste0("Processing individual: ", i))
+
+  # Import variable combinations for this individual
+  mods <- read.csv(paste0(resultdir, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
+
+  # Adjust column names
+  colnames(mods) <- covar_names
+
+  # Identify covariates included in the top model
+  betatruefalse <- mods[topmodnums[[i]],]
+  betanums[[i]] <- which(betatruefalse[1,] == TRUE)
+
+  # Calculate total number of covars in top model
+  K <- sum(betatruefalse[1,])
+
+  # Specify number of choices per choice set
+  C <- 6
+
+  # Isolate out individual data
+  rs_data_subset <- rs_data[rs_data$ind_id == i, ]
+
+  # Specify number of choice sets for this individual
+  N <- length(unique(rs_data_subset$choice_id))
+
+  # create design array with all covariates
+  x <- rsf_array(rs_data, c(N, C, 10))
+
+  # Remove unused covariates from data array
+  x.temp <- x[,,betanums[[i]]]
+
+  # must enter data into a list
+  data <- list(
+    C = C, K = K, N = N,
+    x = x.temp,
+    y = rep(1, N),
+    obs=c(1,0,0,0,0,0),
+    pos = diag(1, 6)
+  )
+
+  # initial values are best supplied as a function
+  inits <- function(){
+    list(
+      beta = runif(K, -10, 10)
+    )
+  }
+  # a character vector of parameters to monitor
+  params <- c('beta', 'chis_obs', 'chis_sim')
+
+  fit <- sampling(mod, data = data, pars = params, init = inits,
+                  chains =4, iter = 1000, warmup = 200, thin = 1)
+
+  topfitlst <- c(topfitlst, fit)
+
+}
+saveRDS(topfitlst, paste0(resultdir, "TopModelFits_ChiSquare.rds"))
+topfitlst <- readRDS(paste0(resultdir, "TopModelFits_ChiSquare.rds"))
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
@@ -451,12 +448,10 @@ for(i in 1:nInd){
 # lapply(1:nChoices, function(x) rethinking::softmax())
 # # best way to calculate beta value times 
 # rethinking::softmax()
+
 ############################################ 
 ######### Caterpillar plots for Top Models ######### 
 ############################################
-
-
-
 
 # Isolate out just caterpillar plots for presentation
 for(i in 1:11){
@@ -468,7 +463,7 @@ for(i in 1:11){
     theme(axis.text.x = element_text(size=25), 
           axis.text.y = element_text(size=25)) +
     ylab("")
-  ggsave(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
+  ggsave(paste0(resultdir, "CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
 }
 
 # Other miscellaneous plots 
@@ -519,7 +514,7 @@ p1 <- ggplot(topmodcounts, aes(fill=factor(Significance, levels=c("sigpos", "sig
         legend.position=c(0.8,0.8),
         panel.grid = element_blank())
 p1
-ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/SignificanceCountsBarPlot.png"), 
+ggsave(plot=p1, filename=paste0(resultdir, "SignificanceCountsBarPlot.png"), 
 width=8, height=8, units="in")
 
 

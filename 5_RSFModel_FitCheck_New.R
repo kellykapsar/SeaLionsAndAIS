@@ -264,6 +264,8 @@ for(i in 1:nInd){
   P_labellist[[i]] <- covar_l
 }
 
+saveRDS(P_labellist, paste0(resultdir, "P_labellist.rds"))
+
 ############################### 
 ######### RADAR PLOTS ######### 
 ############################### 
