@@ -228,11 +228,12 @@ ggplot(timeline, aes(x=starttag, y= deploy_id, color = deploy_id)) +
   scale_color_manual(values=sealilabels$color) +
   scale_x_date(breaks=date_breaks(width="1 month"), date_labels="%b %Y") +
   scale_y_discrete(labels=sealilabels$labels) +
-  ylab("") +
+  ylab("Individual") +
   xlab("") +
   theme_bw() +
   theme(axis.text.x=element_text(angle=45, hjust=1),
-      axis.text=element_text(size=15))
+      axis.text=element_text(size=15), 
+      axis.title=element_text(size=15))
 
 ggsave("../Figures/TelemetryTimeline.png", width = 10, height = 6, units = "in")
 ``` 
