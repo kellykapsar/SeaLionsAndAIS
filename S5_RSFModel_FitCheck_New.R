@@ -16,7 +16,7 @@ set.seed(011392)
 
 # specify directories
 homedir <- "C:/Users/Kelly Kapsar/OneDrive - Michigan State University/Sync/SeaLionsAndAIS/" # kk - Don't know what the difference between workdir and homedir is
-resultdir <- paste(homedir, "Results/", sep = "")
+resultdir <- paste(homedir, "Results/SSL_IndlAllcombos_Seasonal_2022-6-16/", sep = "")
 datestr <- format(Sys.time(), "%Y-%m-%d")
 
 # Number of individuals to process
@@ -174,11 +174,9 @@ getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
 ################################################################################
 
 # Set result  directory for individual all combination models
-comboresults <- paste(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/", sep = "")
-# set it
-setwd(comboresults)
+setwd(resultdir)
 # Get list of all files in results directory
-files <- list.files()
+files <- list.files(resultdir)
 
 # Load in rs_data
 rs_data <- readRDS("../../Data_Processed/Telemetry/UsedAndAvail_SeasonKDE_20220615.rds")
@@ -422,7 +420,7 @@ mod <- readRDS(comp.modpath)
 # 
 # }
 # saveRDS(topfitlst, paste0(resultdir, "/SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
-topfitlst <- readRDS(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/TopModelFits_ChiSquare.rds"))
+topfitlst <- readRDS(paste0(resultdir, "TopModelFits_ChiSquare.rds"))
 
 # Figure 1: plot results of Posterior 
 # extract observed discrepancies
@@ -468,7 +466,7 @@ for(i in 1:11){
     theme(axis.text.x = element_text(size=25), 
           axis.text.y = element_text(size=25)) +
     ylab("")
-  ggsave(paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
+  ggsave(paste0(resultdir, "CaterpillarPlot_", M_labels[i], ".png"), width=8, height=9, units="in")
 }
 
 # Other miscellaneous plots 
@@ -519,7 +517,7 @@ p1 <- ggplot(topmodcounts, aes(fill=factor(Significance, levels=c("sigpos", "sig
         legend.position=c(0.8,0.8),
         panel.grid = element_blank())
 p1
-ggsave(plot=p1, filename=paste0(resultdir, "SSL_IndlAllCombos_Seasonal_2022-06-16/SignificanceCountsBarPlot.png"), 
+ggsave(plot=p1, filename=paste0(resultdir, "SignificanceCountsBarPlot.png"), 
 width=8, height=8, units="in")
 
 
