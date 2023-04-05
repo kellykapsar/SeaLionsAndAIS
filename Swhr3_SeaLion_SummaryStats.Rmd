@@ -1,0 +1,218 @@
+---
+title: "RSFModel"
+author: "Kelly Kapsar"
+date: "8/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries. 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+library(raster)
+library(ggplot2)
+library(scales)
+library(ggmap)
+library(leaflet)
+library(ggplot2)
+library(GGally)
+library(RColorBrewer)
+library(corrr)
+
+opar <- par()      # make a copy of current graphical parameters
+```
+
+Study area boundaries. 
+
+```{r study area, warning=FALSE}
+# Projection information for WGS84/UTM Zone 5N (EPSG:32605)
+prj <- 32605
+
+# Create study area polygon
+coords <- data.frame(lat=c(56, 62, 62, 56, 56), lon=c(-155, -155, -143, -143, -155), id="study")
+study <- coords %>% 
+         st_as_sf(coords = c("lon", "lat"), crs=4326) %>% 
+         group_by(id) %>% 
+         summarize(geometry = st_combine(geometry)) %>%  
+         st_cast("POLYGON") %>% 
+         st_transform(prj)
+# st_write(study, "../Data_Raw/studyarea.shp")
+
+basemap <- read_sf("../Data_Raw/BBmap.shp") %>% st_transform(prj) %>%  st_buffer(0)
+
+# Crop basemap to buffered extent of study area 
+study.buff <- st_buffer(study, 100000) # Buffer study area by 100 km
+basemap.crop <- st_crop(basemap, study.buff)
+
+# Map of study area 
+ggplot() +
+  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
+  geom_sf(data=study, fill=NA, color="red")
+
+# Get latlong coordinates for study area for use in downloading other data sets
+studylatlon <- study %>% st_transform(4269) %>% st_bbox()
+
+```
+
+Pull in SSL data. 
+
+```{r}
+
+ssl <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_Swhr_20220713.rds") 
+
+covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", "logfish", "prox_fish_km", "prox_ship_km")
+covar_names_proper <- c("Bathymetry (m)", "Distance to land (m)", "Distance to shelf break (m)", "Slope (degrees)", "Avg. sea surface\ntemperature (C)", "Avg. wind speed (m/s)", "Log(Shipping traffic (km))", "Log(Fishing traffic (km))", "LCP Distance to fishing (km)", "LCP Distance to shipping (km)")
+
+# Get colors for individuals
+getPalette = c("#0070ff", "#002673", "#b2df8a", "#33a02c",
+               "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+               "#cab2d6", "#8967ae", "#ffff99")
+```
+
+Calculate tag duration. 
+
+```{r tag data}
+# Tag duration values from Progress Report: 
+# https://drive.google.com/drive/u/0/folders/1O4Pmj-SGIdaV3tSbhV7BIahFfnsSEWLi
+
+tags <- c(235, 161, 209, 248, 158,184, 173, 164, 205, 202, 262)  
+mean(tags)
+sd(tags)
+sd(tags)/sqrt(length(tags)) # Standard error
+
+# I'm reporting standard deviation because I'm more interested in the variability around the 
+# sample mean than I am in estimating how accurately the sample mean reflects the true population mean. 
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1255808/
+
+
+used <- ssl[ssl$used == 1,]
+
+# Calculate duration of tags in weeks 
+tagduration <- used %>% group_by(deploy_id) %>% summarize(nweeks = length(unique(weeklyhr_id)))
+
+mean(tagduration$nweeks)
+sd(tagduration$nweeks)
+
+stargazer::stargazer(tagduration)
+
+
+
+library(kableExtra)
+
+kbl(tagduration) %>% kable_classic_2()
+
+# Calculate average weekly transmission rate
+weeklytransmissions <- used %>% group_by(deploy_id, weeklyhr_id) %>% summarize(n = n()) %>% # Number of transmissions per week
+                        # Average number of weekly transmissions per individual
+                        ungroup() %>% group_by(deploy_id) %>% summarize(avgweek = mean(n)) 
+
+mean(weeklytransmissions$avgweek)
+sd(weeklytransmissions$avgweek)
+
+```
+
+```{r covariate plots, eval=FALSE}
+
+summary(ssl); cat("\n")
+
+
+for(i in 1:11){
+  print(i)
+  t <- ssl %>% dplyr::filter(ind_id == i) %>% dplyr::select(all_of(covar_names)) %>% ggpairs()
+  dep_id <- unique(ssl$deploy_id[which(ssl$ind_id == i)])
+  ggsave(plot=t, filename =paste0("../Figures/Figures_Swhr/PairCorrs_", dep_id, ".jpeg"), 
+         width = 10, height=10, units="in", device = "jpeg")
+}
+
+
+# Violin plot tutorial: https://www.r-graph-gallery.com/violin_and_boxplot_ggplot2.html
+
+# Violin plots of all covars: used vs. available by individual
+lapply(1:10, function(i){
+  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="deploy_id")) +
+    geom_violin() +
+    facet_wrap(~deploy_id) +
+    scale_fill_manual(values = getPalette) +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    xlab("") +
+    ylab(covar_names_proper[i]) +
+    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
+      theme(axis.text.x = element_text(size=15), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/Figures_Swhr/UsedVsAvail_ByIndl", covar_names[i], ".png"), width = 10, height = 7, units="in")
+})
+
+# Violin plots of all covars: used vs. available 
+lapply(1:10, function(i){
+  ggplot(ssl, aes_string(x="used", y=covar_names[i], fill="used")) +
+    geom_violin() +
+    scale_fill_manual(values = getPalette) +
+    geom_boxplot(width = 0.1, alpha=0.2, color="grey") +
+    xlab("") +
+    ylab(covar_names_proper[i]) +
+    scale_x_discrete(labels=c("0" = "Available", "1" = "Used")) +
+      theme(axis.text.x = element_text(size=15), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/Figures_Swhr/UsedVsAvail_", covar_names[i], ".png"), width = 10, height = 7, units="in")
+})
+
+# Violin plots of all covars: by individual
+lapply(1:10, function(i){
+  ggplot(ssl, aes_string(x="deploy_id", y=covar_names[i], fill="deploy_id")) +
+      geom_violin() +
+      scale_fill_manual(values = getPalette) +
+      # geom_boxplot(width = 0.1, alpha=0.4, color="grey") +
+      ylab(covar_names_proper[i]) +
+      xlab("") +
+      theme(axis.text.x = element_text(angle = 55, size=15, hjust=1, vjust=1), 
+            axis.text.y = element_text(size=15),
+            axis.title=element_text(size=20), 
+            legend.position="None") 
+  ggsave(filename=paste0("../Figures/Figures_Swhr/UsedByIndl_", covar_names[i], ".png"), width = 10, height = 5, units="in")
+})
+
+
+# Correlations between covariates 
+ssl %>% dplyr::select(bathymetry, dist_land, dist_500m, slope, wind, logfish, logship, sst, prox_ship_km, prox_fish_km)%>% 
+  ggcorr(label=T)
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+```
+
+```{r}
+# Create lookup table for matching matrix column number to covariate name 
+# ONLY FOR USE ON RSF_ARRAY, NOT RS_DATA....Otherwise column numbers will be messed up
+# Remove Euclidean distance from the analysis 
+lookup <- 1:10
+names(lookup) <- covar_names[1:10]
+
+getcovarcol <- function(colname, lookupvector){
+  colnum <- unname(lookupvector[colname])
+  return(colnum)
+}
+
+
+# Get a list of pairwise correlations >0.6 for each individual
+corrlist <- lapply(1:11, function(x) ssl %>% filter(ind_id == x) %>% 
+                          dplyr::select(all_of(covar_names[1:10])) %>% 
+                          corrr::correlate() %>% 
+                          corrr::shave() %>% 
+                          corrr::stretch() %>% 
+                          dplyr::filter(abs(r) > 0.6) %>% 
+                          mutate(x = getcovarcol(x, lookup), y = getcovarcol(y, lookup)))
+                          # Convert column names to matrix numbers
+
+lapply(1:11, function(x)write.csv(corrlist[[x]], paste0("../Data_Processed/Telemetry/Corrs_Swhr_", x, ".csv")))
+browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ")
+```
+
+
+
