@@ -75,7 +75,7 @@ outpath <- paste("../Results/output.Rout", sep = "")
 print("Time begin"); print(start); cat("\n"); 
 
 # resource selection data path
-rs.data.path <- paste("../Data/UsedAndAvail_WeeklyKDE_20220311.rds", sep = "")
+rs.data.path <- paste("../Data_Processed/UsedAndAvail_WeeklyKDE_20220706.rds", sep = "")
 # read in resource selection data and sort with used point at top of list
 rs_data <- readRDS(rs.data.path) %>% group_by(weeklyhr_id) %>% mutate(weeklyhr_id = cur_group_id())
 
@@ -133,7 +133,7 @@ N <- length(unique(rs_data_subset$choice_id))
 x <- rsf_array(rs_data_subset, c(N, C, K))
 
 # Calculate pairwise correlations among all covars 
-corrs <- read.csv(paste0("../Data/Corrs_", ind, ".csv"))
+corrs <- read.csv(paste0("../Data_Processed/Corrs_", ind, ".csv"))
 
 # Adjust all possible combinations matrix to remove rows with correlated variables
 # for(i in 1:length(corrs$x)){
