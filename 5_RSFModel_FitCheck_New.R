@@ -186,6 +186,28 @@ choices <- rs_data %>% group_by(ind_id) %>% summarize(nchoices = length(unique(c
 mean(choices$nchoices)
 sd(choices$nchoices)
 
+# Summarize number of choices per week
+weekchoice <- rs_data %>% group_by(weeklyhr_id) %>% summarize(nchoices = length(unique(choice_id)))
+mean(weekchoice$nchoices)
+sd(weekchoice$nchoices)
+
+# Summarize number of weeks of data per ind
+nweeks <- rs_data %>% group_by(ind_id) %>% summarize(nweeks = length(unique(weeklyhr_id)))
+mean(nweeks$nweeks)
+sd(nweeks$nweeks)
+
+# Count number of models for each SSL 
+modlengths <- c() 
+for(i in 1:nInd){
+  
+  # Import variable combinations for this individual 
+  mods <- read.csv(paste0(resultdir, "ModelVariableList_", i, ".csv")) %>% dplyr::select(-X)
+  len <- length(mods$Var1)
+  modlengths <- c(modlengths, len)
+}
+max(modlengths) + 10 # + 10 to account for single variable models 
+min(modlengths) + 10 # + 10 to account for single variable models
+
 # Covariate names (in order)
 covar_names <- c("bathymetry", "dist_land", "dist_500m", "slope", "sst", "wind", "logship", 
                  "logfish", "prox_fish_km", "prox_ship_km")
