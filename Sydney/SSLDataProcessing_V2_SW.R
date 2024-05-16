@@ -270,7 +270,8 @@ ggplot() +
   theme(legend.title = element_text(size = 20),
         legend.text = element_text(size = 20),
         axis.text = element_text(size = 15)) 
-ggsave("../Figures/PathMap.png", width = 10, height = 8, units = "in")
+ggsave("../Figures/PathMap.png", 
+       width = 10, height = 8, units = "in")
 
 # Tag duration timeline 
 timeline <- sealis %>% 
@@ -295,4 +296,90 @@ ggplot(timeline,
         axis.text = element_text(size = 12), 
         axis.title = element_text(size = 15))
 
-ggsave("../Figures/TelemetryTimeline.png", width = 10, height = 6, units = "in")
+ggsave("../Figures/TelemetryTimeline.png", 
+       width = 10, height = 6, units = "in")
+
+
+# Available locations - radius method -------------------------------------
+
+# Calculating a (average hrly movement rate in km/hr) for each SSL and b (sd of movement rate)
+euclidean_speed <- function(lat2, lat1, long2, long1, time2, time1) {
+  latdiff <- lat2 - lat1
+  longdiff <- long2 - long1
+  distance <- sqrt(latdiff^2 + longdiff^2)/1000
+  timediff <- as.numeric(difftime(time2, time1, units = c("hours")))
+  return(distance / timediff)
+}
+
+# Recalculate Euclidean speed
+sealis <- sealis %>% 
+  group_by(deploy_id) %>%
+  arrange(deploy_id, date) %>% 
+  mutate(timediff = as.numeric(difftime(date, lag(date), units = c("mins"))),
+         speed_kmhr = euclidean_speed(northing, lag(northing), 
+                                      easting, lag(easting), 
+                                      date, lag(date)))
+
+
+# Need to clean out inf and NA speed as well as those above a certain threshold
+# How to determine threshold?
+sealispeed <- sealis %>% 
+  st_drop_geometry() %>% 
+  group_by(deploy_id) %>% 
+  summarize(speed_avg = mean(speed_kmhr, na.rm = T), 
+            speed_sd = sd(speed_kmhr, na.rm = T), 
+            timediff = mean(timediff, na.rm = T)/60) # convert to hourly
+
+# radius = c(a + 2b)
+sealispeed$radius <- sealispeed$timediff*(sealispeed$speed_avg + 2*sealispeed$speed_sd) 
+
+sealis <- left_join(sealis, sealispeed, by = "deploy_id")
+
+
+# Average number of non-land points per sea lion per time period ----------
+
+# Read in landmask 
+landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
+
+sealis$land <- raster::extract(landmask, sealis)
+sum(sealis$land, na.rm = T) / length(sealis$land)*100
+
+watersealis <- sealis[is.na(sealis$land),]
+
+ptcts_month <- watersealis %>% 
+  st_drop_geometry() %>%
+  group_by(deploy_id, year, month) %>% 
+  summarize(n = n())
+ptcts_month <- ptcts_month %>%
+  group_by(deploy_id) %>% 
+  summarize(meanmonthlypts = mean(n))
+
+ptcts_biweek <- watersealis %>% 
+  st_drop_geometry() %>% 
+  group_by(deploy_id, year, fortnight) %>% 
+  summarize(n = n())
+ptcts_biweek <- ptcts_biweek %>% group_by(deploy_id) %>% summarize(meanbiweekpts = mean(n))
+
+ptcts_week <- watersealis %>% 
+  st_drop_geometry() %>% 
+  group_by(deploy_id, year, weekofyear) %>%
+  summarize(n=n())
+ptcts_week <- ptcts_week %>% 
+  group_by(deploy_id) %>% 
+  summarize(meanweekpts = mean(n))
+
+ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, dayofyear) %>% summarize(n=n())
+ptcts_day <- ptcts_day%>% group_by(deploy_id) %>% summarize(meandaypts = mean(n))
+
+ptcts <- left_join(ptcts_month, ptcts_biweek, by="deploy_id")
+ptcts <- left_join(ptcts, ptcts_week, by="deploy_id")
+ptcts <- left_join(ptcts, ptcts_day, by="deploy_id")
+
+# write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
+
+# watersealidata <- data.frame(stat=c(), monthly=c(), biweekly=c(), weekly=c(), daily=c())
+# watersealidata[1,"stat"] <- "mean"
+# watersealidata[1,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], mean))
+# 
+# watersealidata[2,"stat"] <- "stdev"
+# watersealidata[2,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], sd))
