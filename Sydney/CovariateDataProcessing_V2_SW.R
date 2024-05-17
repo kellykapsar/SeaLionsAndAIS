@@ -212,7 +212,7 @@ dist500m <- gridDistance(bathy2,
 dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Save results
-writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
+# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
 
 
 # Plot results
@@ -230,4 +230,112 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data = study, fill = NA, color = "red")
 
+
+# AIS Data - Intensity ----------------------------------------------------
+
+start <- proc.time()
+
+# Boundary for AIS data acquisition
+aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% 
+  st_transform(prj) %>% 
+  st_crop(study)
+
+aisbound_sp <- aisbound_sf %>% as("Spatial")
+
+# Import raster, reproject to 4336, and crop to study area
+fishinglist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", 
+                          pattern = "Fishing")
+otherlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", 
+                        pattern = "Other")
+cargolist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/",
+                        pattern = "Cargo")
+tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", 
+                         pattern = "Tanker")
+
+# Create raster bricks for each ship type -----
+
+fishingras <- lapply(fishinglist, 
+                     # Create a raster by combining file path with current list item
+                     function(x) {projectRaster(raster::raster(
+                       paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
+                       crs = prj)} )
+
+# Combine the list of raster objects into one raster brick
+fishingbrick <- raster::brick(fishingras) %>%
+  # Mask the raster brick using 'aisbound_sp'
+  raster::mask(aisbound_sp)
+
+otherras <- lapply(otherlist, 
+                   function(x) {projectRaster(raster::raster(
+                     paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)),
+                     crs = prj)} )
+otherbrick <- raster::brick(otherras) %>% 
+  raster::mask(aisbound_sp)
+
+cargoras <- lapply(cargolist, 
+                   function(x) {projectRaster(raster::raster(
+                     paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
+                     crs = prj)} )
+cargobrick <- raster::brick(cargoras) %>%
+  raster::mask(aisbound_sp)
+
+tankerras <- lapply(tankerlist, 
+                    function(x) {projectRaster(raster::raster(
+                      paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
+                      crs = prj)})
+tankerbrick <- raster::brick(tankerras) %>% 
+  raster::mask(aisbound_sp)
+
+shippingbrick <- otherbrick + cargobrick + tankerbrick
+
+# Convert units to km 
+shippingbrick <- shippingbrick/1000
+fishingbrick <- fishingbrick/1000
+
+# Create list of weeks 
+yearmon <- seq(as.Date("2018/11/1"), as.Date("2020/7/31"), "week")
+yearmon <- format(yearmon, "%G-W%V")
+
+names(shippingbrick) <- yearmon
+names(fishingbrick) <- yearmon
+
+shippingbrick <- raster::setZ(shippingbrick, yearmon)
+fishingbrick <- raster::setZ(fishingbrick, yearmon)
+
+
+# Save raster bricks as netcdf files 
+
+# Save output file
+writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+            overwrite = TRUE, 
+            format = "CDF",
+            varname = "intensity", 
+            varunit = "km",
+            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+            xname = "lon", 
+            yname = "lat",
+            zname = "time",
+            zunit = "numeric")
+
+saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+ 
+writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+            overwrite = TRUE, 
+            format = "CDF",
+            varname = "intensity", 
+            varunit = "km",
+            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+            zname = "time", 
+            xname = "lon",
+            yname = "lat")
+
+saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+
+# Plot results
+fish.df <- as.data.frame(fishingbrick[[1]], xy = TRUE) %>% 
+  drop_na()
+colnames(fish.df) <- c("x", "y", "intensity")
+
+# Fun animation of the raster brick
+animate(fishingbrick, pause = 0.5, n = 1)
 
