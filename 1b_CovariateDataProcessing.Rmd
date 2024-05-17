@@ -240,7 +240,11 @@ tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", patter
 # Create raster bricks for each ship type 
 fishingras <- lapply(fishinglist, 
                 function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
-fishingbrick <- raster::brick(fishingras) %>% raster::mask(aisbound_sp)
+
+# Combine the list of raster objects into a multi-layer raster (raster brick)
+fishingbrick <- raster::brick(fishingras) %>%
+  # Mask the raster brick using 'aisbound_sp'
+  raster::mask(aisbound_sp)
 
 otherras <- lapply(otherlist, 
                 function(x){projectRaster(raster::raster(paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), crs=prj)})
