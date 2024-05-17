@@ -6,8 +6,6 @@
 
 # Setup -------------------------------------------------------------------
 
-library(tidyr)
-library(dplyr)
 library(sf)
 library(raster)
 library(ggplot2)
@@ -15,6 +13,7 @@ library(scales)
 library(ggmap)
 library(leaflet)
 library(RColorBrewer)
+library(tidyverse)
 
 
 # Study area boundaries ---------------------------------------------------
@@ -90,7 +89,7 @@ sealilabels <- data.frame(names = c("SSL2018774PWS",
 getPalette = colorRampPalette(brewer.pal(9, "Set1"))
 
 
-# Sea lion location geodatabase (gdb) -------------------------------------------
+# Sea lion location geodatabase -------------------------------------------
 
 # Import sea lion location geodatabase (downloaded from Google Drive folder)
 seali <- list.files("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001")
@@ -337,6 +336,7 @@ sealis <- left_join(sealis, sealispeed, by = "deploy_id")
 
 
 # Average number of non-land points per sea lion per time period ----------
+# Run script 1b study area, bathymetry, and landmask sections
 
 # Read in landmask 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
@@ -344,7 +344,7 @@ landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
 sealis$land <- raster::extract(landmask, sealis)
 sum(sealis$land, na.rm = T) / length(sealis$land)*100
 
-watersealis <- sealis[is.na(sealis$land),]
+watersealis <- sealis[is.na(sealis$land), ]
 
 ptcts_month <- watersealis %>% 
   st_drop_geometry() %>%
@@ -358,7 +358,9 @@ ptcts_biweek <- watersealis %>%
   st_drop_geometry() %>% 
   group_by(deploy_id, year, fortnight) %>% 
   summarize(n = n())
-ptcts_biweek <- ptcts_biweek %>% group_by(deploy_id) %>% summarize(meanbiweekpts = mean(n))
+ptcts_biweek <- ptcts_biweek %>% 
+  group_by(deploy_id) %>% 
+  summarize(meanbiweekpts = mean(n))
 
 ptcts_week <- watersealis %>% 
   st_drop_geometry() %>% 
@@ -368,18 +370,92 @@ ptcts_week <- ptcts_week %>%
   group_by(deploy_id) %>% 
   summarize(meanweekpts = mean(n))
 
-ptcts_day <- watersealis %>% st_drop_geometry() %>% group_by(deploy_id, dayofyear) %>% summarize(n=n())
-ptcts_day <- ptcts_day%>% group_by(deploy_id) %>% summarize(meandaypts = mean(n))
+ptcts_day <- watersealis %>%
+  st_drop_geometry() %>%
+  group_by(deploy_id, dayofyear) %>% 
+  summarize(n = n())
+ptcts_day <- ptcts_day %>% 
+  group_by(deploy_id) %>% 
+  summarize(meandaypts = mean(n))
 
-ptcts <- left_join(ptcts_month, ptcts_biweek, by="deploy_id")
-ptcts <- left_join(ptcts, ptcts_week, by="deploy_id")
-ptcts <- left_join(ptcts, ptcts_day, by="deploy_id")
+ptcts <- left_join(ptcts_month, ptcts_biweek, by = "deploy_id")
+ptcts <- left_join(ptcts, ptcts_week, by = "deploy_id")
+ptcts <- left_join(ptcts, ptcts_day, by = "deploy_id")
 
-# write.csv(ptcts, "../Data_Raw/SSL_PtCts.csv")
+# write.csv(ptcts, "../Data_Processed/SSL_PtCts.csv")
 
-# watersealidata <- data.frame(stat=c(), monthly=c(), biweekly=c(), weekly=c(), daily=c())
-# watersealidata[1,"stat"] <- "mean"
-# watersealidata[1,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], mean))
+# watersealidata <- data.frame(stat = c(),
+#                              monthly = c(), 
+#                              biweekly = c(), 
+#                              weekly = c(), 
+#                              daily = c())
 # 
-# watersealidata[2,"stat"] <- "stdev"
-# watersealidata[2,c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[,2:5], sd))
+# watersealidata[1, "stat"] <- "mean"
+# 
+# watersealidata[1, c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[ , 2:5], mean))
+# 
+# watersealidata[2, "stat"] <- "stdev"
+# watersealidata[2, c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[ , 2:5], sd))
+
+
+# Save clean data ---------------------------------------------------------
+
+# Add in unique id for each used point
+watersealis$choice_id <- 1:length(watersealis$deploy_id)
+
+# Save clean data output 
+saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
+
+
+# amt package experiments -------------------------------------------------
+
+# # Convert used locations to trk objects using amt package
+# library(amt)
+# 
+# trk <- mk_track(st_drop_geometry(used), # what is "used" here?
+#                 .x = lon,
+#                 .y = lat, 
+#                 .t = date,
+#                 id = deploy_id, 
+#                 sst = sst, 
+#                 crs = CRS("+init = epsg:4326"))
+# trk.class <- class(trk)
+# 
+# # Calculate time of day based on lat/lon and timestamp
+# trk <- trk %>% time_of_day()
+# class(trk) <- trk.class
+# 
+# # Now, we can transform back to geographic coordinates
+# trk <- amt::transform_coords(trk, CRS("+init = epsg:32605"))
+
+
+# Plot individual SSL locs ------------------------------------------------
+
+# # Using ggplot without a background
+
+# Use separate axes for each individual (add scales = "free" to facet_wrap
+# + fig.height = 12, fig.width = 12
+ggplot(sealis,
+       aes(x = lon, y = lat)) +
+  geom_point() +
+  facet_wrap(~ deploy_id, scales = "free")
+
+# Test individual seals
+ssl781 <- sealis %>%
+  filter(deploy_id == "SSL2019781KOD")
+
+# Leaflet map - works but there are no points on the map
+leaflet(ssl781) %>% 
+  addTiles() %>% 
+  addCircles(~lon, ~lat)
+
+# ggmap - doesn't work
+map <- get_map(location = c(lon = mean(ssl781$lon),
+                            lat = mean(ssl781$lat)),
+               zoom = 7,
+               maptype = "hybrid",
+               source = "google")
+
+ggmap(map) +
+  geom_point(data = ssl781,
+             aes(x = lon, y = lat), size = 2.5)
