@@ -315,11 +315,17 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 shiplist<- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", pattern = ".shp")
 ships <- lapply(shiplist, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% st_transform(prj)})
 
-ships <- do.call(rbind, ships) # Combine all ships into one sf object
+# anonymize ships for sharing with Sydney
+ships_anon <- lapply(ships, function(x){left_join(x, scrambleids, by = join_by(MMSI_x == MMSI)) %>% 
+    select(-MMSI_x, -MMSI_y, -Vssl_Nm, -IMO) %>%
+    mutate(AIS_ID = paste0(scramblemmsi, substr(AIS_ID, 10, nchar(AIS_ID))))})
+  
+
+ships <- do.call(rbind, ships_anon) # Combine all ships into one sf object
 ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
 
-st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
-saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector_Anonymized/EPSG32605/AllVessels_Reprojected.shp")
+saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector_Anonymized/EPSG32605/AllVessels_Reprojected.rds")
 
 ```
 
