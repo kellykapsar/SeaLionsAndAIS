@@ -70,15 +70,15 @@ rasres <- lapply(raslist, function(x) res(x)/1000)
 # I modified it so that it works with weekly timescale data 
 # DOES NOT work with holes in the data set any more 
 
-extract_covar_var_time_custom <- function(
-    xy, t, covariates) {
+extract_covar_var_time_custom <- function(xy, t, covariates) {
   
-  t_covar <- raster::getZ(covariates)
-  t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week
-  # Same week of year as lubridate::isoweek(ssl_dates$date)
+  t_covar <- raster::getZ(covariates) # Get time slices from covariates
+  t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week - same week of year as lubridate::isoweek(ssl_dates$date)
+  
   wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
   ev <- terra::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
-  cov_val <- ev[cbind(seq_along(wr), wr)] # select only the relevant time slice for each location
-  return(cov_val)
+  cov_val <- ev[cbind(seq_along(wr), wr)] # Select only the relevant time slice for each location
+  
+  return(cov_val) # Return the extracted covariate values
 }
 
