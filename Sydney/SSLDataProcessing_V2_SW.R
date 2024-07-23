@@ -480,8 +480,19 @@ iu_all <- seali_tracks2 %>%
 iu_df <- data.frame(name = iu_all$deploy_id,
                     iu = iu_all$IU)
 # 785KOD had the highest intensity of use indicating the most range residency out of the rest of the animals.
-  
-# Resample track information to regularized sampling interval
+
+# Resample track information to regularized sampling interval. Standardize to the lowest common denominator for relocation interval or possibly a range (e.g., 13 to 16 hours, then test to ensure this doesn't influence space use or movements).
+
+# does not work
+ssl_track_rs <- seali_tracks2 %>% 
+  # Apply a function to x (each item in nested 'data' column)
+  mutate(steps = map(data, function(x)
+    x %>% track_resample(rate = hours(13:16),
+                         tolerance = minutes(20)) %>% 
+      filter_min_n_burst(min_n = 13) %>% 
+      # Keep attribute associated with the end of the step
+      steps_by_burst(keep_cols = "end")))
+
 
 
 # Plot individual SSL locs ------------------------------------------------
