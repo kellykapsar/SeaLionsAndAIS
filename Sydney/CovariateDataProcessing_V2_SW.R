@@ -483,7 +483,7 @@ ggplot() +
 
 # animate(wind_week, pause=0.5, n=1)
 
-writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options="INTERLEAVE=BAND", overwrite=T)
+writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
 saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
 wind <- wind_week
 save(wind, file = "../Data_Processed/wind_weekly.rda")
@@ -549,3 +549,116 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data = study, fill = NA, color = "red")
 
+
+# Sea Surface Temperature -------------------------------------------------
+
+# [OSTIA: Operational Sea Surface Temperature and Sea Ice Analysis](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=SST_GLO_SST_L4_NRT_OBSERVATIONS_010_001) from the Copernicus Marine Service. 
+
+# Variables = analysed_sst, analysis_error, mask, sea_ice_fraction
+ 
+# North = 62
+# South = 56
+# West = -155
+# East = -143
+# Start = 01 Nov 2018
+# End = 31 July 2020
+
+
+# Open netcdf file 
+sst <- nc_open("../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2_1630513353420.txt')
+  print(sst)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(sst, "lon")
+lat <- ncvar_get(sst, "lat", verbose = F)
+t <- ncvar_get(sst, "time")
+
+head(lon)
+
+# Read in data from the SST variable and verify the dimensions of the array
+sst.array <- ncvar_get(sst, "analysed_sst") # 3dim array
+dim(sst.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(sst, "analysed_sst", "_FillValue")
+fillvalue
+
+sst.array[sst.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(sst)
+
+# Convert from kelvin to celsius
+sst.array <- sst.array - 273.15
+
+# Isolate and plot a random time step to check
+sst.slice <- sst.array[,,1]
+
+dim(sst.slice) #2dim
+
+sst.r <- raster(t(sst.slice), xmn = min(lon), xmx = max(lon),
+                ymn = min(lat), ymx = max(lat),
+                # Found projection on the website
+                crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>%
+  flip(direction = "y") %>%
+  raster::projectRaster(crs = prj) %>%
+  raster::crop(study)
+
+sst.df <- as.data.frame(sst.r, xy = TRUE) %>% 
+  drop_na()
+colnames(sst.df) <- c("x", "y", "sst")
+
+plot(sst.r)
+
+# Map of study area with sst data
+ggplot() +
+  geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
+  geom_raster(data = sst.df, 
+              aes(x = x, y = y, fill = sst),
+              alpha = 0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data = study, fill = NA, color = "red")
+
+test <- aperm(sst.array, c(2, 1, 3))
+# Make a raster brick of all values 
+sst_brick <- brick(test, xmn = min(lon), xmx = max(lon), 
+                   ymn = min(lat), ymx = max(lat), 
+                   crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) %>% 
+  flip(direction = "y") %>%
+  raster::projectRaster(crs = prj) %>% 
+  raster::crop(study)
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t2 <- as.POSIXct("1981-01-01 00:00") + as.difftime(t, units = "secs")
+t2 <- format(t2, "%G-W%V")
+
+# Name raster layers after the date that they portray
+names(sst_brick) <- t2
+sst_brick <- raster::setZ(sst_brick, t2)
+
+
+# Calculate the change between any two layers
+# tempchange <- sst_brick[[2]]-sst_brick[[1]]
+# tempchange
+
+# Get the date from the names of the layers and extract the month
+sst_week <- zApply(sst_brick, by = t2, fun = mean)
+
+# animate(sst_week, pause=0.5, n=1)
+
+writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
+saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
+sst <- sst_week
+save(sst, file = "../Data_Processed/sst_weekly.rda")
+
+# writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
+#       overwrite = TRUE, format = "CDF",
+#       varname = "analysed_sst", varunit = "m/s",
+#       longname = "Sea Surface Temperature -- raster brick to netCDF",
+#       xname = "lon", yname = "lat", zname = "time",
+#       zunit = "numeric")
