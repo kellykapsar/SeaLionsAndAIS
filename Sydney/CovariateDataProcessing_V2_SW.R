@@ -371,8 +371,181 @@ ships <- do.call(rbind, ships)
 
 # Extract year from AIS_ID
 ships <- ships %>% 
-  mutate(year = substr(AIS_ID, 11, 14))
+  dplyr::mutate(year = substr(AIS_ID, 11, 14))
 
 st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
 saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+
+
+# Wind Speed --------------------------------------------------------------
+
+# Wind speed data from the Copernicus Marine Service (Met-Op A and B satellites).
+
+# Data set name: [GLOBAL OCEAN WIND L4 NEAR REAL TIME 6 HOURLY OBSERVATIONS](https://resources.marine.copernicus.eu/?option=com_csw&view=details&product_id=WIND_GLO_WIND_L4_NRT_OBSERVATIONS_012_004). 
+
+# Open netcdf file 
+wind <- nc_open("../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_1626911972037.nc")
+# Save metadata to a text file
+{
+  sink('../Data_Raw/CERSAT-GLO-BLENDED_WIND_L4-V6-OBS_FULL_TIME_SERIE_16269119720374.txt')
+  print(wind)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(wind, "lon")
+lat <- ncvar_get(wind, "lat", verbose = F)
+t <- ncvar_get(wind, "time")
+
+head(lon)
+
+# Read in data from the wind variable and verify the dimensions of the array
+wind.array <- ncvar_get(wind, "wind_speed") # 3dim array
+dim(wind.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(wind, "wind_speed", "_FillValue")
+fillvalue
+
+wind.array[wind.array == fillvalue$value] <- NA
+
+# Close netcdf file
+nc_close(wind)
+
+# Isolate and plot a random time step to check
+wind.slice <- wind.array[,,1]
+
+dim(wind.slice) #2dim
+
+wind.r <- raster(t(wind.slice), xmn = min(lon), xmx = max(lon), 
+                 ymn = min(lat), ymx = max(lat),
+                 # Found projection on the website
+                 crs = CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
+  flip(direction = "y")%>%
+  raster::projectRaster(crs = prj)
+
+wind.df <- as.data.frame(wind.r, xy = TRUE) %>%
+  drop_na()
+colnames(wind.df) <- c("x", "y", "windspeed")
+
+plot(wind.r)
+
+
+# Map of study area with wind data
+ggplot() +
+  geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
+  geom_raster(data = wind.df, 
+              aes(x = x, y = y, fill = windspeed), 
+              alpha = 0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data = study, fill = NA, color = "red")
+
+
+test <- aperm(wind.array, c(2, 1, 3)) # resize array
+# Make a raster brick of all values 
+wind_brick <- brick(test, xmn = min(lon), xmx = max(lon), 
+                    ymn = min(lat), ymx = max(lat), 
+                    crs = CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+  flip(direction = "y") %>%
+  raster::projectRaster(crs = prj) 
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t2 <- as.POSIXct("1900-01-01 00:00") + as.difftime(t, units = "hours")
+t2 <- format(t2, "%G-W%V")
+
+# Name raster layers after the date that they portray
+names(wind_brick) <- t2
+wind_brick <- raster::setZ(wind_brick, t2)
+
+# Save output file
+# writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif")
+
+# Fun animation of the raster brick
+# animate(wind_brick, pause=0.5, n=1)
+
+# Calculate mean monthly wind rasters 
+wind_week <- zApply(wind_brick, t2, fun = mean)
+
+# animate(wind_week, pause=0.5, n=1)
+
+# plot monthly average wind data for November, 2018
+windweek.df <- as.data.frame(wind_week[[1]], xy = TRUE) %>%
+  drop_na()
+colnames(windweek.df) <- c("x", "y", "windspeed")
+
+ggplot() +
+  geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
+  geom_raster(data = windweek.df, 
+              aes(x = x, y = y, fill = windspeed),
+              alpha = 0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data = study, fill = NA, color = "red")
+
+# animate(wind_week, pause=0.5, n=1)
+
+writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options="INTERLEAVE=BAND", overwrite=T)
+saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
+wind <- wind_week
+save(wind, file = "../Data_Processed/wind_weekly.rda")
+
+
+# Save output file
+# writeRaster(wind_week, "../Data_Processed/wind_weekly.nc",
+# overwrite = TRUE, format = "CDF",
+# varname = "wind_speed", varunit = "m/s",
+# longname = "Wind Speed -- raster brick to netCDF",
+# xname = "lon", yname = "lat", zname = "time",
+# zunit = "numeric")
+
+# Test to make sure that the netcdf file saved correctly. #
+
+test <- nc_open("../Data_Processed/wind_weekly.nc")
+
+# Save metadata to a text file
+{
+  sink('../Data_Processed/WIND_Monthly.txt')
+  print(test)
+  sink()
+}
+
+# Read lat lon and time for each observation
+lon <- ncvar_get(test, "lon")
+lat <- ncvar_get(test, "lat", verbose = F)
+t <- ncvar_get(test, "time")
+
+head(lon)
+
+# Read in data from the wind variable and verify the dimensions of the array
+test.array <- ncvar_get(test, "wind_speed") # 3dim array
+dim(test.array)
+
+# Identify fill value and replace with NA
+fillvalue <- ncatt_get(test, "wind_speed", "_FillValue")
+fillvalue
+
+test.array[test.array == fillvalue$value] <- NA
+
+nc_close(test)
+
+test_brick <- brick(test.array, xmn = min(lon), xmx = max(lon), 
+                    ymn = min(lat), ymx = max(lat), 
+                    crs = prj) 
+
+plot(test_brick[[1]])
+
+
+test.df <- as.data.frame(test_brick[[1]], xy = TRUE)
+colnames(test.df) <- c("x", "y", "windspeed")
+
+plot(test.df) # previously test.r but test.r is not called anywhere else?
+
+
+# Map of study area with wind data
+ggplot() +
+  geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
+  geom_raster(data = test.df, 
+              aes(x = x, y = y, fill = windspeed), 
+              alpha = 0.9) +
+  scale_fill_gradient2() +
+  geom_sf(data = study, fill = NA, color = "red")
 
