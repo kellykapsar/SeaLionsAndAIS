@@ -1,5 +1,5 @@
 # Title: SSL Data Processing V2
-# Author: Kelly Kapsar
+# Author: Kelly Kapsar, Sydney Waloven
 # Date: 2024-05-16
 # Description: R script version of 1a_SSLDataProcessing.Rmd for readability
 
@@ -103,7 +103,8 @@ lyrs2 <- grep("D-Locations", seali)
 lyrs <- append(lyrs, lyrs2)
 
 # Create initial sf object with data from one sea lion
-lyrs <- lapply(lyrs, function(x) {st_read(paste0("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001/", seali[x]))})
+lyrs <- lapply(lyrs, function(x) {
+  st_read(paste0("../Data_Raw/raw data files - complete - all tags-20210803T143355Z-001/", seali[x]))})
 
 # Make each table into an sf object
 # lyrs <- lapply(lyrs, function(x) {st_as_sf(x, coords = c("longitude", "latitude"), crs = 4326)})
@@ -214,6 +215,7 @@ sealis <- subset(sealis,
                              count))
 
 # Implement speed filter of 3 m/s on all locations using McConnell algorithm
+## time between sampling intervals has not been standardized yet so we should not yet decide about removing points based on speed ## ~SW
 sealis <- sealis %>% 
   arrange(deploy_id, date) %>% 
   group_by(deploy_id) %>% 
@@ -269,6 +271,7 @@ ggplot() +
   theme(legend.title = element_text(size = 20),
         legend.text = element_text(size = 20),
         axis.text = element_text(size = 15)) 
+
 ggsave("../Figures/PathMap.png", 
        width = 10, height = 8, units = "in")
 
@@ -409,24 +412,76 @@ saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 
 # amt package experiments -------------------------------------------------
 
-# # Convert used locations to trk objects using amt package
-# library(amt)
-# 
-# trk <- mk_track(st_drop_geometry(used), # what is "used" here?
-#                 .x = lon,
-#                 .y = lat, 
-#                 .t = date,
-#                 id = deploy_id, 
-#                 sst = sst, 
-#                 crs = CRS("+init = epsg:4326"))
-# trk.class <- class(trk)
-# 
-# # Calculate time of day based on lat/lon and timestamp
-# trk <- trk %>% time_of_day()
-# class(trk) <- trk.class
-# 
-# # Now, we can transform back to geographic coordinates
-# trk <- amt::transform_coords(trk, CRS("+init = epsg:32605"))
+# Convert used locations to a track object using amt package
+library(amt)
+
+seali_data <- watersealis %>% 
+  # Convert sf object into a tibble
+  as_tibble() %>% 
+  # Remove the geometry column
+  select(-geometry)
+# This returns our sf object to its original data frame, the projected coordinates are in the "northing" (Y) and "easting" (X) columns.
+
+seali_tracks <- seali_data %>%
+  # Specify x and y coordinate columns and date column
+  make_track(.x = easting,
+             .y = northing,
+             .t = date,
+             id = deploy_id, # differentiates each animal
+             crs = 32605,
+             all_cols = TRUE) %>%  # ensures all columns are brought forward
+  add_nsd() # net squared displacement
+
+# Visualize the number of locations per day
+seali_tracks %>% 
+  group_by(date = as_date(t_)) %>% 
+  summarize(count = n()) %>% 
+  ggplot(aes(x = date,
+             y = count)) +
+  geom_col() +
+  ylim(c(0, 20))
+
+# Nest all data except the id column
+seali_tracks2 <- seali_tracks %>% 
+  nest(data = -"deploy_id")
+# Each animal id will have its own data frame.
+
+# Get sampling rate for each animal
+sr_all <- seali_tracks2 %>% 
+  # Create a new nested column that saves the sampling rate summary info
+  mutate(sr = map(data,
+                  summarize_sampling_rate)) %>% 
+  # Select the id and sr column, discarding all other info in the data column
+  select(deploy_id, sr) %>% 
+  # Unnest the data in the sr column to make it easily viewable
+  unnest(cols = c(sr)) 
+
+# median sampling rate for each sea lion
+# 29 29 28 25 20 30 24 30 18 27 37
+
+# Convert to df to visualize
+sr_df <- data.frame(deploy_id = sr_all$deploy_id,
+                    sr = sr_all$median)
+
+
+# Calculate other movement metrics across all animals
+
+# Intensity of use
+iu_all <- seali_tracks2 %>% 
+  # Create a new nested column that saves the sampling rate summary information
+  mutate(IU = map(data,
+                  intensity_use)) %>% 
+  # Select the id and sr column, removing other info in the data column
+  select(deploy_id, IU) %>% 
+  # Unnest to easily view
+  unnest(cols = c(IU)) 
+
+# Convert to a df
+iu_df <- data.frame(name = iu_all$deploy_id,
+                    iu = iu_all$IU)
+# 785KOD had the highest intensity of use indicating the most range residency out of the rest of the animals.
+  
+# Resample track information to regularized sampling interval
 
 
 # Plot individual SSL locs ------------------------------------------------
