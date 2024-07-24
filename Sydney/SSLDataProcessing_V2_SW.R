@@ -341,21 +341,27 @@ sealis <- left_join(sealis, sealispeed, by = "deploy_id")
 # Average number of non-land points per sea lion per time period ----------
 # Run script 1b study area, bathymetry, and landmask sections
 
+# Remove locations at sea lion haul-out sites using landmask
+
 # Read in landmask 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
 
+# Extract landmask values at each sea lion location
 sealis$land <- raster::extract(landmask, sealis)
-sum(sealis$land, na.rm = T) / length(sealis$land)*100
+# Calculate the proportion of points that are on land
+sum(sealis$land, na.rm = T) / length(sealis$land)*100 # 20% of locations on land
 
+# Subset sea lion locations to only those in the water (where landmask = NA)
 watersealis <- sealis[is.na(sealis$land), ]
 
+# Now calculate the mean number of seal locations in the water monthly, biweekly, weekly, and daily
 ptcts_month <- watersealis %>% 
   st_drop_geometry() %>%
   group_by(deploy_id, year, month) %>% 
   summarize(n = n())
 ptcts_month <- ptcts_month %>%
   group_by(deploy_id) %>% 
-  summarize(meanmonthlypts = mean(n))
+  summarize(meanmonthlypts = mean(n)) # calculate the mean number of points per month for each id
 
 ptcts_biweek <- watersealis %>% 
   st_drop_geometry() %>% 
@@ -363,7 +369,7 @@ ptcts_biweek <- watersealis %>%
   summarize(n = n())
 ptcts_biweek <- ptcts_biweek %>% 
   group_by(deploy_id) %>% 
-  summarize(meanbiweekpts = mean(n))
+  summarize(meanbiweekpts = mean(n)) # calculate the mean number of points biweekly for each id
 
 ptcts_week <- watersealis %>% 
   st_drop_geometry() %>% 
@@ -371,7 +377,7 @@ ptcts_week <- watersealis %>%
   summarize(n=n())
 ptcts_week <- ptcts_week %>% 
   group_by(deploy_id) %>% 
-  summarize(meanweekpts = mean(n))
+  summarize(meanweekpts = mean(n)) # calculate the mean number of points weekly for each id
 
 ptcts_day <- watersealis %>%
   st_drop_geometry() %>%
@@ -379,27 +385,13 @@ ptcts_day <- watersealis %>%
   summarize(n = n())
 ptcts_day <- ptcts_day %>% 
   group_by(deploy_id) %>% 
-  summarize(meandaypts = mean(n))
+  summarize(meandaypts = mean(n)) # calculate the mean number of points daily for each id
 
 ptcts <- left_join(ptcts_month, ptcts_biweek, by = "deploy_id")
 ptcts <- left_join(ptcts, ptcts_week, by = "deploy_id")
 ptcts <- left_join(ptcts, ptcts_day, by = "deploy_id")
 
 # write.csv(ptcts, "../Data_Processed/SSL_PtCts.csv")
-
-# watersealidata <- data.frame(stat = c(),
-#                              monthly = c(), 
-#                              biweekly = c(), 
-#                              weekly = c(), 
-#                              daily = c())
-# 
-# watersealidata[1, "stat"] <- "mean"
-# 
-# watersealidata[1, c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[ , 2:5], mean))
-# 
-# watersealidata[2, "stat"] <- "stdev"
-# watersealidata[2, c("monthly", "biweekly", "weekly", "daily")] <- unlist(lapply(ptcts[ , 2:5], sd))
-
 
 # Save clean data ---------------------------------------------------------
 
@@ -483,17 +475,45 @@ iu_df <- data.frame(name = iu_all$deploy_id,
 
 # Resample track information to regularized sampling interval. Standardize to the lowest common denominator for relocation interval or possibly a range (e.g., 13 to 16 hours, then test to ensure this doesn't influence space use or movements).
 
-# does not work
-ssl_track_rs <- seali_tracks2 %>% 
+ssl_steps <- seali_tracks2 %>% 
   # Apply a function to x (each item in nested 'data' column)
   mutate(steps = map(data, function(x)
-    x %>% track_resample(rate = hours(13:16),
-                         tolerance = minutes(20)) %>% 
-      filter_min_n_burst(min_n = 13) %>% 
+    x %>% track_resample(rate = minutes(15), # tags were programmed to transmit every 15 min
+                         tolerance = minutes(3)) %>% 
+      filter_min_n_burst(min_n = 3) %>% 
       # Keep attribute associated with the end of the step
       steps_by_burst(keep_cols = "end")))
 
+# Take a look at what was lost by choosing this sampling rate. This is showing the number of step lengths that were ultimately calculated for each day of the study period. If the sea lions had periods of sampling at different intervals, then this would show what time periods were lost from the resampling decision.
 
+ssl_steps %>% 
+  select(deploy_id, steps) %>% 
+  unnest(cols = steps) %>% 
+  group_by(date = as_date(t2_),
+           deploy_id) %>% 
+  summarize(count = n()) %>% # number of step lengths per day of study period
+  ggplot(aes(x = date,
+             y = count)) +
+  geom_col() +
+  facet_wrap(~ deploy_id) +
+  labs(y = "steps per day")
+
+
+# Select deploy_id and steps, unnest the data frame and create a plot of step-length distributions
+
+ssl_steps %>% 
+  # Select deploy_id and steps
+  select(deploy_id, steps) %>% 
+  # Unnest new df
+  unnest(cols = steps) %>% 
+  # Generate plot of step-length distributions
+  ggplot(aes(x = sl_,
+             fill = deploy_id)) +
+  geom_density(alpha = 0.4) +
+  labs(x = "Step length [m]",
+       y = "Density") +
+  xlim(c(0, 5000)) +
+  theme_light()
 
 # Plot individual SSL locs ------------------------------------------------
 
