@@ -478,11 +478,16 @@ iu_df <- data.frame(name = iu_all$deploy_id,
 ssl_steps <- seali_tracks2 %>% 
   # Apply a function to x (each item in nested 'data' column)
   mutate(steps = map(data, function(x)
-    x %>% track_resample(rate = minutes(15), # tags were programmed to transmit every 15 min
+    # Tags were programmed to transmit every 15 min. Median sr was about 30 min so we'll resample to 30.
+    x %>% track_resample(rate = minutes(30),
                          tolerance = minutes(3)) %>% 
       filter_min_n_burst(min_n = 3) %>% 
       # Keep attribute associated with the end of the step
-      steps_by_burst(keep_cols = "end")))
+      steps_by_burst(keep_cols = "end"))) # %>% # comment out after this if needed
+      # Generates random steps from the burst segments - creates a null model for comparison
+      random_steps()
+
+str(ssl_steps, width = 80, strict_width = "no", nchar.max = 80, give.attr = FALSE)
 
 # Take a look at what was lost by choosing this sampling rate. This is showing the number of step lengths that were ultimately calculated for each day of the study period. If the sea lions had periods of sampling at different intervals, then this would show what time periods were lost from the resampling decision.
 
@@ -514,6 +519,14 @@ ssl_steps %>%
        y = "Density") +
   xlim(c(0, 5000)) +
   theme_light()
+
+
+# amt: exploratory data analysis ------------------------------------------
+
+# Test on one individual - 785KOD
+test <- ssl_steps %>%
+  extract_covariates()
+
 
 # Plot individual SSL locs ------------------------------------------------
 
