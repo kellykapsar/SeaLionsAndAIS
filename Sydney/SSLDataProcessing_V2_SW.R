@@ -1,7 +1,7 @@
 # Title: SSL Data Processing V2
 # Author: Kelly Kapsar, Sydney Waloven
 # Date: 2024-05-16
-# Description: R script version of 1a_SSLDataProcessing.Rmd for readability
+# Description: R script version of 1a_SSLDataProcessing.Rmd for readability. Original script by Kelly Kapsar. Edits made by Sydney Waloven to regularize sea lion locations to a constant time step.
 
 
 # Setup -------------------------------------------------------------------
@@ -508,8 +508,9 @@ ssl_steps %>%
   xlim(c(0, 5000)) +
   theme_light()
 
-# We should also recheck our speed information, now that we are regularized to 30 min intervals.
-
+# Save data
+saveRDS(seali_tracks, "../Data_Processed/seali_tracks.rds")
+saveRDS(ssl_steps, "../Data_Processed/ssl_steps_resampled.rds")
 
 # Plot individual SSL locs ------------------------------------------------
 
