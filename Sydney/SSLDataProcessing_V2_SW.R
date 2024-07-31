@@ -399,7 +399,7 @@ ptcts <- left_join(ptcts, ptcts_day, by = "deploy_id")
 watersealis$choice_id <- 1:length(watersealis$deploy_id)
 
 # Save clean data output 
-saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
+# saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 
 
 # amt package experiments -------------------------------------------------
@@ -407,6 +407,7 @@ saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 # Convert used locations to a track object using amt package
 library(amt)
 
+# Referencing Animal Space Use and Behavior SMSC with Dr. Joe Kowalski -----
 seali_data <- watersealis %>% 
   # Convert sf object into a tibble
   as_tibble() %>% 
@@ -414,6 +415,7 @@ seali_data <- watersealis %>%
   select(-geometry)
 # This returns our sf object to its original data frame, the projected coordinates are in the "northing" (Y) and "easting" (X) columns.
 
+# Here I'm adding nsd (net squared displacement) in the same code chain that I make the track, and I'm also specifying that we have an id column, so each animal can be kept separate.
 seali_tracks <- seali_data %>%
   # Specify x and y coordinate columns and date column
   make_track(.x = easting,
@@ -422,9 +424,36 @@ seali_tracks <- seali_data %>%
              id = deploy_id, # differentiates each animal
              crs = 32605,
              all_cols = TRUE) %>%  # ensures all columns are brought forward
-  add_nsd() # net squared displacement
+  add_nsd() %>% # net squared displacement
+  # Add speed information to track file
+  mutate(speed = speed(.))
+  
+  
+# Nest data except for deploy_id
+seali_tracks2 <- seali_tracks %>% 
+  nest(-deploy_id)
 
-# Visualize the number of locations per day
+# Get sampling rate for each animal
+sr_all <- seali_tracks2 %>% 
+  # Create a new nested column to save the sampling rate summary info
+  mutate(sr = map(data, summarize_sampling_rate)) %>% 
+  # Select the id and sr col, remove all other info in the data column
+  select(deploy_id, sr) %>% 
+  # Unnest the data in the sr column to make it easily viewable
+  unnest(cols = c(sr))
+
+# median sampling rate for each sea lion
+# 29 29 28 25 20 30 24 30 18 27 37
+
+# Convert to df to visualize sr for each animal
+sr_df <- data.frame(deploy_id = sr_all$deploy_id,
+                    median = sr_all$median,
+                    mean = sr_all$mean,
+                    n = sr_all$n,
+                    unit = sr_all$unit)
+sr_df
+
+# Visualize the number of locations per day for all animals
 seali_tracks %>% 
   group_by(date = as_date(t_)) %>% 
   summarize(count = n()) %>% 
@@ -433,45 +462,6 @@ seali_tracks %>%
   geom_col() +
   ylim(c(0, 20))
 
-# Nest all data except the id column
-seali_tracks2 <- seali_tracks %>% 
-  nest(data = -"deploy_id")
-# Each animal id will have its own data frame.
-
-# Get sampling rate for each animal
-sr_all <- seali_tracks2 %>% 
-  # Create a new nested column that saves the sampling rate summary info
-  mutate(sr = map(data,
-                  summarize_sampling_rate)) %>% 
-  # Select the id and sr column, discarding all other info in the data column
-  select(deploy_id, sr) %>% 
-  # Unnest the data in the sr column to make it easily viewable
-  unnest(cols = c(sr)) 
-
-# median sampling rate for each sea lion
-# 29 29 28 25 20 30 24 30 18 27 37
-
-# Convert to df to visualize
-sr_df <- data.frame(deploy_id = sr_all$deploy_id,
-                    sr = sr_all$median)
-
-
-# Calculate other movement metrics across all animals
-
-# Intensity of use
-iu_all <- seali_tracks2 %>% 
-  # Create a new nested column that saves the sampling rate summary information
-  mutate(IU = map(data,
-                  intensity_use)) %>% 
-  # Select the id and sr column, removing other info in the data column
-  select(deploy_id, IU) %>% 
-  # Unnest to easily view
-  unnest(cols = c(IU)) 
-
-# Convert to a df
-iu_df <- data.frame(name = iu_all$deploy_id,
-                    iu = iu_all$IU)
-# 785KOD had the highest intensity of use indicating the most range residency out of the rest of the animals.
 
 # Resample track information to regularized sampling interval. Standardize to the lowest common denominator for relocation interval or possibly a range (e.g., 13 to 16 hours, then test to ensure this doesn't influence space use or movements).
 
@@ -481,11 +471,10 @@ ssl_steps <- seali_tracks2 %>%
     # Tags were programmed to transmit every 15 min. Median sr was about 30 min so we'll resample to 30.
     x %>% track_resample(rate = minutes(30),
                          tolerance = minutes(3)) %>% 
+      # Only keep bursts (strings of locations) with 3 consecutive locations
       filter_min_n_burst(min_n = 3) %>% 
       # Keep attribute associated with the end of the step
-      steps_by_burst(keep_cols = "end"))) # %>% # comment out after this if needed
-      # Generates random steps from the burst segments - creates a null model for comparison
-      random_steps()
+      steps_by_burst(keep_cols = "end")))
 
 str(ssl_steps, width = 80, strict_width = "no", nchar.max = 80, give.attr = FALSE)
 
@@ -503,7 +492,6 @@ ssl_steps %>%
   facet_wrap(~ deploy_id) +
   labs(y = "steps per day")
 
-
 # Select deploy_id and steps, unnest the data frame and create a plot of step-length distributions
 
 ssl_steps %>% 
@@ -520,12 +508,7 @@ ssl_steps %>%
   xlim(c(0, 5000)) +
   theme_light()
 
-
-# amt: exploratory data analysis ------------------------------------------
-
-# Test on one individual - 785KOD
-test <- ssl_steps %>%
-  extract_covariates()
+# We should also recheck our speed information, now that we are regularized to 30 min intervals.
 
 
 # Plot individual SSL locs ------------------------------------------------
