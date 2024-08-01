@@ -25,6 +25,7 @@ prj <- 32605
 coords <- data.frame(lat = c(56, 62, 62, 56, 56), 
                      lon = c(-155, -155, -143, -143, -155),
                      id = "study")
+
 study <- coords %>% 
   st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
   group_by(id) %>% 
@@ -63,22 +64,166 @@ wind <- readRDS("../Data_Processed/wind_weekly.rds")
 raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
-# Extract dynamic covariate data at used locations 
+# Extract dynamic covariate data at used locations -----
 ### Modified FROM AMT PACKAGE
 # https://github.com/jmsigner/amt/blob/master/R/extract_covariates.R
 # Also helpful: https://cran.r-project.org/web/packages/amt/vignettes/p3_rsf.html
 # I modified it so that it works with weekly timescale data 
 # DOES NOT work with holes in the data set any more 
 
-extract_covar_var_time_custom <- function(xy, t, covariates) {
+# extract_covar_var_time_custom <- function(xy, t, covariates) {
+#   
+#   t_covar <- raster::getZ(covariates) # Get time slices from covariates
+#   t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week - same week of year as lubridate::isoweek(ssl_dates$date)
+#   
+#   wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
+#   ev <- terra::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
+#   cov_val <- ev[cbind(seq_along(wr), wr)] # Select only the relevant time slice for each location
+#   
+#   return(cov_val) # Return the extracted covariate values
+# }
+
+
+# New function for extracting covariates at used locations ----
+# Select once daily locations
+
+
+# -----
+
+
+# Weekly KDE home ranges --------------------------------------------------
+
+# Isolate out variables of interest 
+ssl_simple <- ssl %>% 
+  select(weeklyhr_id, date, lon, lat)
+
+# # Read in resampled track rds - each animal's data is nested in a df row
+trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>% 
+  # Unnest data
+  select(deploy_id, data, steps) %>% 
+  unnest(cols = data)
+
+# # Calculate time of day based on lat/lon and timestamp
+trk <- trk %>% 
+  time_of_day() # adds tod_ column to end of df
+
+
+# Create a list of static covariates 
+staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
+
+# Calculate the number of rows that share the same weeklyhr_id (used points)
+pointcounts <- ssl %>% 
+  st_drop_geometry() %>% 
+  group_by(weeklyhr_id) %>% 
+  summarize(n = n()) %>%
+  ungroup()
+
+# Create empty dfs
+ssl_hr <- data.frame()
+avail_pts <- data.frame()
+
+# Create 5 random non-land points within each weekly MCP for each used point
+for(i in 1:length(unique(trk$id))) {
   
-  t_covar <- raster::getZ(covariates) # Get time slices from covariates
-  t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week - same week of year as lubridate::isoweek(ssl_dates$date)
+  # Print iteration every 10th ID to keep track of progress
+  if (i %% 10 == 0) { print(i) }
   
-  wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
-  ev <- terra::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
-  cov_val <- ev[cbind(seq_along(wr), wr)] # Select only the relevant time slice for each location
+  # Subset df for current id
+  t <- trk[which(trk$id == unique(trk$id)[i]), ]
   
-  return(cov_val) # Return the extracted covariate values
+  # Calculate number of random pts needed
+  npts <- pointcounts$n[which(pointcounts$weeklyhr_id == unique(trk$id)[i])]*5
+  
+  # KDE home range with 95% UD
+  hr_kde <- hr_kde(t, levels = c(0.95))
+  
+  # Generate random points within the KDE home range
+  pts <- random_points(hr_kde, n = npts) %>%
+    # Add hr_id to points
+    mutate(weeklyhr_id = unique(trk$id)[i]) 
+  
+  # Convert to sf
+  landpts <- st_as_sf(pts, coords = c("x_", "y_"), 
+                      crs = prj,
+                      remove = FALSE) %>% 
+    # Extract static covariates
+    cbind(., raster::extract(staticcovars, .)) %>%
+    st_drop_geometry() %>% 
+    # Remove points that are on land
+    filter(!is.na(.data$Bathymetry))
+  
+  # Generate more random points if the required 5 points is not met yet
+  while (length(landpts$case_) < npts) {
+    
+    newpts <- random_points(hr_kde, n = npts-length(landpts$case_)) %>%
+      mutate(weeklyhr_id = unique(trk$id)[i])
+    
+    newlandpts <- st_as_sf(newpts, coords = c("x_", "y_"), 
+                           crs = prj, 
+                           remove = FALSE) %>% 
+      cbind(., raster::extract(staticcovars, .)) %>%
+      st_drop_geometry() %>% 
+      filter(!is.na(.data$Bathymetry))
+    
+    landpts <- rbind(landpts, newlandpts)
+  }
+  
+  # Convert KDE to isopleths
+  hr_kde <- hr_isopleths(hr_kde) %>% 
+    # Add hr_id
+    mutate(weeklyhr_id = unique(trk$id)[i])
+  
+  # Add results to empty df
+  ssl_hr <- rbind(ssl_hr, hr_kde)
+  avail_pts <- rbind(avail_pts, landpts)
 }
+
+# Save output polygons 
+st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20220705.shp")
+
+
+ssl_new <- ssl %>% 
+  select(deploy_id, weeklyhr_id, date, year, weekofyear, northing, easting) %>% 
+  cbind(., raster::extract(staticcovars, .)) %>% 
+  rename(dist_land = DistLand, dist_500m = Dist500m) %>%
+  mutate(used = 1)
+
+# Extract week of year as date from original data 
+ssl_dates <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summarize(date=min(date))
+avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id"))
+
+# Check that week of year re-calculation worked okay 
+# It works!
+# ssl_dates$weekofyear <- lubridate::isoweek(ssl_dates$date)
+# ssl_dates$weekofyear2 <- format(ssl_dates$date, "%G-W%V")
+# ssl_datetest <- left_join(ssl, ssl_dates, by= "weeklyhr_id")
+# length(which(ssl_datetest$weekofyear.x != ssl_datetest$weekofyear.y))
+
+# Clean up column names in available points 
+avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
+                                  year = lubridate::year(avail_pts$date),
+                                  weekofyear = lubridate::isoweek(avail_pts$date), 
+                                  used = 0) %>% 
+  rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
+  select(-case_)
+
+
+# Merge used with available 
+all_pts <- avail_pts %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
+
+# Rename to match other naming schemes
+ssl4 <- all_pts
+
+# Extract dynamic weekly covariate values at used and available locations 
+# Extract covariate data at used locations 
+ssl4$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=sst)
+ssl4$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=wind)
+ssl4$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=ship)
+ssl4$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=fish)
+
+# convert column names to lowercase 
+colnames(ssl4) <- tolower(colnames(ssl4)) 
+
+save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220706.rda")
+# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 
