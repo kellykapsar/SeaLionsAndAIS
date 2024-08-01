@@ -34,14 +34,35 @@ study <- coords %>%
   st_transform(prj)
 
 # Read in clean, non-land ssl used locations
-ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
-ssl$used <- 1
+# ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
+# ssl$used <- 1
+
+# # Read in resampled track rds - each animal's data is nested in a df row. This contains clean, non-land ssl used locations transformed to an amt track.
+trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>% 
+  # Unnest data
+  select(deploy_id, data, steps) %>% 
+  unnest(cols = data) %>% 
+  
+  mutate(
+    # Add column marking these points as used locations
+    used = 1,
+    
+    # Create an ID column that identifies each unique individual/year/week combination
+    weeklyhr_id = factor(paste0(.$deploy_id, 
+                                substr(.$weekofyear, 1, 4), 
+                                substr(.$weekofyear, 7, 8)))
+  )
+
+# Save data
+trk %>% 
+  # Remove steps column before saving
+  select(-steps) %>% 
+  st_write("../Data_Processed/Telemetry/UsedLocsTrk_Clean.shp")
 
 # Create an ID column that identifies each unique individual/year/week combination
-ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, 
-                                 substr(ssl$weekofyear, 1, 4), 
-                                 substr(ssl$weekofyear, 7, 8)))
-
+# ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, 
+#                                  substr(ssl$weekofyear, 1, 4), 
+#                                  substr(ssl$weekofyear, 7, 8)))
 # st_write(ssl, "../Data_Processed/Telemetry/UsedLocs_Clean.shp")
 
 # Read in covariates 
@@ -93,26 +114,20 @@ rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Weekly KDE home ranges --------------------------------------------------
 
-# Isolate out variables of interest 
-ssl_simple <- ssl %>% 
-  select(weeklyhr_id, date, lon, lat)
-
-# # Read in resampled track rds - each animal's data is nested in a df row
-trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>% 
-  # Unnest data
-  select(deploy_id, data, steps) %>% 
-  unnest(cols = data)
-
-# # Calculate time of day based on lat/lon and timestamp
-trk <- trk %>% 
+# # Isolate out variables of interest 
+ssl_simple <- trk %>% 
+  select(weeklyhr_id, 
+         t_, # date
+         x_, # lon
+         y_) %>% # lat
+  # Calculate time of day based on lat/lon and timestamp
   time_of_day() # adds tod_ column to end of df
-
 
 # Create a list of static covariates 
 staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
 
 # Calculate the number of rows that share the same weeklyhr_id (used points)
-pointcounts <- ssl %>% 
+pointcounts <- trk %>% 
   st_drop_geometry() %>% 
   group_by(weeklyhr_id) %>% 
   summarize(n = n()) %>%
@@ -122,7 +137,40 @@ pointcounts <- ssl %>%
 ssl_hr <- data.frame()
 avail_pts <- data.frame()
 
-# # Create 5 random non-land points within each weekly MCP for each used point
+
+# Identifying available points --------------------------------------------
+
+# Here we are generating 10 times the number of "use" points to get our "available" points as a starting point. We will need to assess what a robust minimum # of available points should be. 
+
+# random_points() places the random/regular points within a 100% MCP, though not explicitly stated. No other options currently available. We will use hr_kde to manually set our home range.
+
+# First set the KDE home range with 95% UD
+hr_kde <- hr_kde(trk, levels = c(0.95))
+
+ssl_rsf_10 <- random_points(hr_kde,
+                            n = nrow(trk) * 10,
+                            type = "regular")
+# This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
+table(ssl_rsf_10$case_)
+
+# Plot use/availability
+terra::plot(ssl_rsf_10)
+
+# Generate 5x the number of "use" points to compare against 10x
+ssl_rsf_5 <- random_points(trk,
+                           n = nrow(trk) * 5,
+                           type = "regular")
+terra::plot(ssl_rsf_5)
+# There is no noticeable difference between the 10 and 5 random points per use location so let's stick with the default 10 random points.
+
+# The argument type = "regular" samples points in a regular grid-like pattern instead of completely randomly, beneficial for spatial analysis requiring uniform coverage. The argument presence = "trk" generates points that reflect the sampling distribution or habitat patterns in the tracking data. Which should we use?
+
+
+
+
+# # -----
+
+# Create 5 random non-land points within each weekly MCP for each used point
 for(i in 1:length(unique(trk$id))) {
   
   # Print iteration every 10th ID to keep track of progress
@@ -217,9 +265,9 @@ avail_pts <- left_join(avail_pts,
 # Clean up column names in available points 
 avail_pts <- avail_pts %>% 
   mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
-                                  year = lubridate::year(avail_pts$date),
-                                  weekofyear = lubridate::isoweek(avail_pts$date), 
-                                  used = 0) %>% 
+         year = lubridate::year(avail_pts$date),
+         weekofyear = lubridate::isoweek(avail_pts$date), 
+         used = 0) %>% 
   rename(northing = y_, 
          easting = x_, 
          dist_land = DistLand,
