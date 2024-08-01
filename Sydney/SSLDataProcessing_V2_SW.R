@@ -401,11 +401,14 @@ watersealis$choice_id <- 1:length(watersealis$deploy_id)
 # Save clean data output 
 # saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 
+# amt: creating tracks for all sea lions ----------------------------------
 
-# amt package experiments -------------------------------------------------
 
 # Convert used locations to a track object using amt package
 library(amt)
+
+# Read in watersealis data
+watersealis <- read_rds("../Data_Processed/Telemetry/watersealis.rds")
 
 # Referencing Animal Space Use and Behavior SMSC with Dr. Joe Kowalski -----
 seali_data <- watersealis %>% 
@@ -463,7 +466,10 @@ seali_tracks %>%
   ylim(c(0, 20))
 
 
-# Resample track information to regularized sampling interval. Standardize to the lowest common denominator for relocation interval or possibly a range (e.g., 13 to 16 hours, then test to ensure this doesn't influence space use or movements).
+# amt: resample tracks ----------------------------------------------------
+
+
+# Resample track information to regularized sampling interval
 
 ssl_steps <- seali_tracks2 %>% 
   # Apply a function to x (each item in nested 'data' column)
