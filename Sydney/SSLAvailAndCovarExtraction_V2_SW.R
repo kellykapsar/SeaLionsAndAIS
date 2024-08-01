@@ -122,7 +122,7 @@ pointcounts <- ssl %>%
 ssl_hr <- data.frame()
 avail_pts <- data.frame()
 
-# Create 5 random non-land points within each weekly MCP for each used point
+# # Create 5 random non-land points within each weekly MCP for each used point
 for(i in 1:length(unique(trk$id))) {
   
   # Print iteration every 10th ID to keep track of progress
@@ -183,47 +183,78 @@ st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20220705.shp"
 
 
 ssl_new <- ssl %>% 
-  select(deploy_id, weeklyhr_id, date, year, weekofyear, northing, easting) %>% 
+  select(deploy_id, 
+         weeklyhr_id,
+         date,
+         year, 
+         weekofyear, 
+         northing, 
+         easting) %>% 
   cbind(., raster::extract(staticcovars, .)) %>% 
-  rename(dist_land = DistLand, dist_500m = Dist500m) %>%
+  rename(dist_land = DistLand, 
+         dist_500m = Dist500m) %>%
   mutate(used = 1)
 
 # Extract week of year as date from original data 
-ssl_dates <- ssl %>% st_drop_geometry() %>% group_by(weeklyhr_id) %>% summarize(date=min(date))
-avail_pts <- left_join(avail_pts, ssl_dates, by=c("weeklyhr_id" = "weeklyhr_id"))
+ssl_dates <- ssl %>% 
+  st_drop_geometry() %>% 
+  group_by(weeklyhr_id) %>% 
+  summarize(date = min(date))
+
+avail_pts <- left_join(avail_pts, 
+                       ssl_dates, 
+                       by = c("weeklyhr_id" = "weeklyhr_id"))
 
 # Check that week of year re-calculation worked okay 
 # It works!
 # ssl_dates$weekofyear <- lubridate::isoweek(ssl_dates$date)
 # ssl_dates$weekofyear2 <- format(ssl_dates$date, "%G-W%V")
-# ssl_datetest <- left_join(ssl, ssl_dates, by= "weeklyhr_id")
+# ssl_datetest <- left_join(ssl, 
+#                           ssl_dates, 
+#                           by = "weeklyhr_id")
 # length(which(ssl_datetest$weekofyear.x != ssl_datetest$weekofyear.y))
 
 # Clean up column names in available points 
-avail_pts <- avail_pts %>% mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
+avail_pts <- avail_pts %>% 
+  mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
                                   year = lubridate::year(avail_pts$date),
                                   weekofyear = lubridate::isoweek(avail_pts$date), 
                                   used = 0) %>% 
-  rename(northing = y_, easting = x_, dist_land = DistLand, dist_500m = Dist500m) %>%
+  rename(northing = y_, 
+         easting = x_, 
+         dist_land = DistLand,
+         dist_500m = Dist500m) %>%
   select(-case_)
 
 
 # Merge used with available 
-all_pts <- avail_pts %>% st_as_sf(., coords=c("easting", "northing"), crs=prj, remove=FALSE) %>% rbind(., ssl_new)
+all_pts <- avail_pts %>% 
+  st_as_sf(., coords = c("easting", "northing"), 
+           crs = prj, 
+           remove = FALSE) %>% 
+  rbind(., ssl_new)
 
 # Rename to match other naming schemes
 ssl4 <- all_pts
 
 # Extract dynamic weekly covariate values at used and available locations 
 # Extract covariate data at used locations 
-ssl4$sst <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=sst)
-ssl4$wind <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=wind)
-ssl4$ship <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=ship)
-ssl4$fish <- extract_covar_var_time_custom(xy= st_coordinates(ssl4), t = ssl4$date, covariates=fish)
+ssl4$sst <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
+                                          t = ssl4$date,
+                                          covariates = sst)
+ssl4$wind <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
+                                           t = ssl4$date, 
+                                           covariates = wind)
+ssl4$ship <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
+                                           t = ssl4$date, 
+                                           covariates = ship)
+ssl4$fish <- extract_covar_var_time_custom(xy = st_coordinates(ssl4),
+                                           t = ssl4$date,
+                                           covariates = fish)
 
 # convert column names to lowercase 
 colnames(ssl4) <- tolower(colnames(ssl4)) 
 
-save(ssl4, file="../Data_Processed/Telemetry/TEMP_20220706.rda")
+save(ssl4, file = "../Data_Processed/Telemetry/TEMP_20220706.rda")
 # browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 
