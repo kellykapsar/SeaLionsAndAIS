@@ -54,16 +54,11 @@ trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>%
   )
 
 # Save data
-trk %>% 
-  # Remove steps column before saving
-  select(-steps) %>% 
-  st_write("../Data_Processed/Telemetry/UsedLocsTrk_Clean.shp")
+# trk %>% 
+#   # Remove steps column before saving
+#   select(-steps) %>% 
+#   st_write("../Data_Processed/Telemetry/UsedLocsTrk_Clean.shp")
 
-# Create an ID column that identifies each unique individual/year/week combination
-# ssl$weeklyhr_id <- factor(paste0(ssl$deploy_id, 
-#                                  substr(ssl$weekofyear, 1, 4), 
-#                                  substr(ssl$weekofyear, 7, 8)))
-# st_write(ssl, "../Data_Processed/Telemetry/UsedLocs_Clean.shp")
 
 # Read in covariates 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
@@ -118,16 +113,15 @@ ssl_simple <- trk %>%
 # Create a list of static covariates 
 staticcovars <- raster::stack(dist_land, dist_500m, depth, slope)
 
+# Remove individual rasters to save memory
+rm(dist_land, dist_500m, depth, slope)
+
 # Calculate the number of rows that share the same weeklyhr_id (used points)
 pointcounts <- trk %>% 
   st_drop_geometry() %>% 
   group_by(weeklyhr_id) %>% 
   summarize(n = n()) %>%
   ungroup()
-
-# Create empty dfs
-ssl_hr <- data.frame()
-avail_pts <- data.frame()
 
 
 # Identifying available points --------------------------------------------
@@ -147,7 +141,6 @@ generate_random_points <- function(track_data) {
                               n = nrow(track_data) * 10, 
                               presence = track_data)
   
-  
   # Add animal ID to the random points
   random_pts <- random_pts %>%
     mutate(id = unique(track_data$weeklyhr_id))
@@ -158,7 +151,7 @@ generate_random_points <- function(track_data) {
 # Split track data by animal ID
 split_trk <- split(ssl_simple, ssl_simple$weeklyhr_id)
 
-# Generate random points for each animal and combine the results. This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
+# Generate random points for each animal and combine the results. This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random. This can give us a starting model to assess any collinearity between the variables.
 ssl_rsf_10 <- map_dfr(split_trk, generate_random_points)
 
 table(ssl_rsf_10$case_)
@@ -227,6 +220,7 @@ cor(as.data.frame(ssl_rsf_10[ , 6:9]))
 
 usdm::vif(as.data.frame(ssl_rsf_10[ , 6:9])) # all < 3.0
 
+
 # Sensitivity Analysis ----------------------------------------------------
 
 # Determine how many available points are needed to get stable coefficient estimates.
@@ -271,113 +265,80 @@ wb.sim <- tibble(
 # Read in rds
 wb.sim <- read_rds("../Data_Processed/ssl_sa_sim.rds")
 
-# This is an object structure we already worked with in the amt package in week 1. We have a full list which contains the model result for each run, and that is saved for each of the 100 rows of our data frame. There are 100 rows (5 different amounts of available locations, 20 model runs each)
+# Now this is a full list which contains the model result for each run, and that is saved for each of the 500 rows of our data frame. There are 500 rows (5 different amounts of available locations, 100 model runs each)
 
-# We can look at the result of one model run like this
+# Result of a model run
 wb.sim$result[[1]]
 
 # Now to plot the results and make some conclusions from all this. We now "unnest" the results to plot the coefficient estimates from individual model fits with different sets of available data (1, 5, 20). The unnesting results in a much longer data frame. Run that first part of the code to see the result. After that we are recoding the "term" column, essentially changing the values in the column. We are plotting here the estimate, which is the beta coefficient from the glm regression for each covariate.
 
-wb.sim %>% unnest(cols = result) %>% 
+# Unnest results to plot the coefficient estimates from indv model fits with different sets of available data (1, 5, 20, 50, 100). 
+p <- wb.sim %>% 
+  unnest(cols = result) %>% 
+  # Recode the "term" column, essentially changing the values in the column
   mutate(term = case_match(term, 
                            "(Intercept)" ~ "Intercept",
-                           "anth_risk" ~ "Human disturbance", 
-                           "woody_dist" ~ "Woody dist.",
-                           "fence_dist" ~ "Fence dist.", 
-                           "prirds_dist" ~ "Primary Rd dist.",
-                           "river_dist" ~ "River dist.",
-                           "secrds_dist" ~ "Sec Rd dist.",
-                           "waterpts_dist" ~ "Water Point dist.")) %>% 
-  
+                           "dist_land" ~ "Distance to land", 
+                           "dist_500m" ~ "Dist_500m",
+                           "depth" ~ "Depth",
+                           "slope" ~ "Slope")) %>% 
+  # Plot the estimate (beta coefficient from the glm regression for each covariate)
   ggplot(aes(x = factor(frac), 
              y = estimate)) +
   geom_boxplot() + 
   facet_wrap(~ term, 
-             scale  ="free") +
+             scale = "free") +
   geom_jitter(alpha = 0.2) + 
   labs(x = "Avail. points per use location", 
        y = "Estimate") +
   theme_light()
 
-# Pretty snazzy right? This is a key tool in making a final assessment of the minimum # of available points needed for each use location. We can see little change in the coefficient values once we have 20 points per use location, but we'll go with 50 to be safe.
+# Save plot
+ggsave("../Figures/ssl_covar_sensitivity_analysis.png", plot = p, width = 10, height = 8)
+
+# This is a key tool in making a final assessment of the minimum number of available points needed for each use location. There is little change in the coefficient values once there are 20 points per use location, but choosing 50 would be safe.
 
 
-# Kelly's code ------------------------------------------------------------
+# Fitting RSF models ------------------------------------------------------
 
-# # 
-ssl_new <- trk %>% 
-  select(deploy_id, 
-         weeklyhr_id,
-         t_,
-         year, 
-         weekofyear, 
-         y_, # # northing
-         x_, # # easting
-         used) %>% # # 
-  cbind(., raster::extract(staticcovars, .)) %>% 
-  rename(dist_land = DistLand, 
-         dist_500m = Dist500m)
+# Generate 50 available locations per use location:
 
-# Extract week of year as date from original data 
-ssl_dates <- ssl %>% 
-  st_drop_geometry() %>% 
-  group_by(weeklyhr_id) %>% 
-  summarize(date = min(date))
+# Modify function from earlier
+# Function to generate random points for one animal
+generate_random_points <- function(track_data) {
+  
+  # Calculate home range (KDE)
+  hr_kde <- hr_kde(track_data, levels = c(0.95))
+  
+  # Generate random points within the home range
+  random_pts <- random_points(hr_kde,
+                              n = nrow(track_data) * 50, 
+                              presence = track_data)
+  
+  # Add animal ID to the random points
+  random_pts <- random_pts %>%
+    mutate(id = unique(track_data$weeklyhr_id))
+  
+  return(random_pts)
+}
 
-avail_pts <- left_join(avail_pts, 
-                       ssl_dates, 
-                       by = c("weeklyhr_id" = "weeklyhr_id"))
+# Split track data by animal ID
+split_trk <- split(ssl_simple, ssl_simple$weeklyhr_id)
 
-# Check that week of year re-calculation worked okay 
-# It works!
-# ssl_dates$weekofyear <- lubridate::isoweek(ssl_dates$date)
-# ssl_dates$weekofyear2 <- format(ssl_dates$date, "%G-W%V")
-# ssl_datetest <- left_join(ssl, 
-#                           ssl_dates, 
-#                           by = "weeklyhr_id")
-# length(which(ssl_datetest$weekofyear.x != ssl_datetest$weekofyear.y))
+# Generate 50 random points for each animal and combine the results. This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
+ssl_rsf_50 <- map_dfr(split_trk, generate_random_points)
 
-# Clean up column names in available points 
-avail_pts <- avail_pts %>% 
-  mutate(deploy_id = substr(avail_pts$weeklyhr_id, 1, 13), 
-         year = lubridate::year(avail_pts$date),
-         weekofyear = lubridate::isoweek(avail_pts$date), 
-         used = 0) %>% 
-  rename(northing = y_, 
-         easting = x_, 
-         dist_land = DistLand,
-         dist_500m = Dist500m) %>%
-  select(-case_)
+table(ssl_rsf_50$case_)
 
+# Plot use/availability
+terra::plot(ssl_rsf_50) %>%
+  # Save plot
+  ggsave("../Figures/ssl_rsf_50_use_availability.png", plot = ., width = 10, height = 8)
 
-# Merge used with available 
-all_pts <- avail_pts %>% 
-  st_as_sf(., coords = c("easting", "northing"), 
-           crs = prj, 
-           remove = FALSE) %>% 
-  rbind(., ssl_new)
+# Assign weights to available points that are very high.
+ssl_rsf_10 <- ssl_rsf_10 %>% 
+  mutate(weight = ifelse(case_ == T,
+                         1,
+                         5000))
 
-# Rename to match other naming schemes
-ssl4 <- all_pts
-
-# Extract dynamic weekly covariate values at used and available locations 
-# Extract covariate data at used locations 
-ssl4$sst <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
-                                          t = ssl4$date,
-                                          covariates = sst)
-ssl4$wind <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
-                                           t = ssl4$date, 
-                                           covariates = wind)
-ssl4$ship <- extract_covar_var_time_custom(xy = st_coordinates(ssl4), 
-                                           t = ssl4$date, 
-                                           covariates = ship)
-ssl4$fish <- extract_covar_var_time_custom(xy = st_coordinates(ssl4),
-                                           t = ssl4$date,
-                                           covariates = fish)
-
-# convert column names to lowercase 
-colnames(ssl4) <- tolower(colnames(ssl4)) 
-
-save(ssl4, file = "../Data_Processed/Telemetry/TEMP_20220706.rda")
-# browseURL("https://www.youtube.com/watch?v=K1b8AhIsSYQ&list=RDK1b8AhIsSYQ&start_radio=1")
 
