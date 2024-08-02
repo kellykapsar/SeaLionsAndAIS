@@ -104,14 +104,6 @@ rasres <- lapply(raslist, function(x) res(x)/1000)
 #   return(cov_val) # Return the extracted covariate values
 # }
 
-
-# New function for extracting covariates at used locations ----
-# Select once daily locations
-
-
-# -----
-
-
 # Weekly KDE home ranges --------------------------------------------------
 
 # # Isolate out variables of interest 
@@ -144,104 +136,187 @@ avail_pts <- data.frame()
 
 # random_points() places the random/regular points within a 100% MCP, though not explicitly stated. No other options currently available. We will use hr_kde to manually set our home range.
 
-# First set the KDE home range with 95% UD
-hr_kde <- hr_kde(trk, levels = c(0.95))
+# Function to generate random points for one animal
+generate_random_points <- function(track_data) {
+  
+  # Calculate home range (KDE)
+  hr_kde <- hr_kde(track_data, levels = c(0.95))
+  
+  # Generate random points within the home range
+  random_pts <- random_points(hr_kde,
+                              n = nrow(track_data) * 10, 
+                              presence = track_data)
+  
+  
+  # Add animal ID to the random points
+  random_pts <- random_pts %>%
+    mutate(id = unique(track_data$weeklyhr_id))
+  
+  return(random_pts)
+}
 
-ssl_rsf_10 <- random_points(hr_kde,
-                            n = nrow(trk) * 10,
-                            type = "regular")
-# This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
+# Split track data by animal ID
+split_trk <- split(ssl_simple, ssl_simple$weeklyhr_id)
+
+# Generate random points for each animal and combine the results. This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
+ssl_rsf_10 <- map_dfr(split_trk, generate_random_points)
+
 table(ssl_rsf_10$case_)
 
 # Plot use/availability
 terra::plot(ssl_rsf_10)
 
-# Generate 5x the number of "use" points to compare against 10x
-ssl_rsf_5 <- random_points(trk,
-                           n = nrow(trk) * 5,
-                           type = "regular")
-terra::plot(ssl_rsf_5)
-# There is no noticeable difference between the 10 and 5 random points per use location so let's stick with the default 10 random points.
+# Assign weights to available points that are very high.
+ssl_rsf_10 <- ssl_rsf_10 %>% 
+  mutate(weight = ifelse(case_ == T,
+                         1,
+                         5000))
 
-# The argument type = "regular" samples points in a regular grid-like pattern instead of completely randomly, beneficial for spatial analysis requiring uniform coverage. The argument presence = "trk" generates points that reflect the sampling distribution or habitat patterns in the tracking data. Which should we use?
+# The argument type = "regular" samples points in a regular grid-like pattern instead of completely randomly, beneficial for spatial analysis requiring uniform coverage. The argument presence = track_data generates points that reflect the sampling distribution or habitat patterns in the tracking data. Which should we use?
+# When using type = "regular", the plots of simulated random vs use points has the random points completely covering the use points. When the presence argument is used, the random vs use points are both plotted visibly.
 
+# Here we extract the value of each raster file for each tracking location and each random location. The extract_covariates() function in amt calls the terra::extract function.
+ssl_rsf_10 <- ssl_rsf_10 %>%
+  extract_covariates(staticcovars) %>% 
+  # Remove points that are on land
+  filter(!is.na(Bathymetry))
 
+# Make vector of variable names
+vars <- ssl_rsf_10 %>% 
+  select(DistLand:slope) %>% 
+  names()
 
+# Histograms for each static variable
+hist_plots <- map(vars, ~
+                    
+                    ssl_rsf_10 %>% 
+                    select(case_, var = .x) %>% 
+                    ggplot(aes(x = var,
+                               after_stat(density),
+                               col = case_)) + 
+                    geom_freqpoly(size = .7,
+                                  bins = 30) + 
+                    labs(title = .x))
 
-# # -----
-
-# Create 5 random non-land points within each weekly MCP for each used point
-for(i in 1:length(unique(trk$id))) {
-  
-  # Print iteration every 10th ID to keep track of progress
-  if (i %% 10 == 0) { print(i) }
-  
-  # Subset df for current id
-  t <- trk[which(trk$id == unique(trk$id)[i]), ]
-  
-  # Calculate number of random pts needed
-  npts <- pointcounts$n[which(pointcounts$weeklyhr_id == unique(trk$id)[i])]*5
-  
-  # KDE home range with 95% UD
-  hr_kde <- hr_kde(t, levels = c(0.95))
-  
-  # Generate random points within the KDE home range
-  pts <- random_points(hr_kde, n = npts) %>%
-    # Add hr_id to points
-    mutate(weeklyhr_id = unique(trk$id)[i]) 
-  
-  # Convert to sf
-  landpts <- st_as_sf(pts, coords = c("x_", "y_"), 
-                      crs = prj,
-                      remove = FALSE) %>% 
-    # Extract static covariates
-    cbind(., raster::extract(staticcovars, .)) %>%
-    st_drop_geometry() %>% 
-    # Remove points that are on land
-    filter(!is.na(.data$Bathymetry))
-  
-  # Generate more random points if the required 5 points is not met yet
-  while (length(landpts$case_) < npts) {
-    
-    newpts <- random_points(hr_kde, n = npts-length(landpts$case_)) %>%
-      mutate(weeklyhr_id = unique(trk$id)[i])
-    
-    newlandpts <- st_as_sf(newpts, coords = c("x_", "y_"), 
-                           crs = prj, 
-                           remove = FALSE) %>% 
-      cbind(., raster::extract(staticcovars, .)) %>%
-      st_drop_geometry() %>% 
-      filter(!is.na(.data$Bathymetry))
-    
-    landpts <- rbind(landpts, newlandpts)
-  }
-  
-  # Convert KDE to isopleths
-  hr_kde <- hr_isopleths(hr_kde) %>% 
-    # Add hr_id
-    mutate(weeklyhr_id = unique(trk$id)[i])
-  
-  # Add results to empty df
-  ssl_hr <- rbind(ssl_hr, hr_kde)
-  avail_pts <- rbind(avail_pts, landpts)
-}
-
-# Save output polygons 
-st_write(ssl_hr, "../Data_Processed/Telemetry/Homerange_KDE_weekly_20220705.shp")
+# Put all plots into one grid. Expand to view clearly.
+cowplot::plot_grid(plotlist = hist_plots)
 
 
-ssl_new <- ssl %>% 
+# Boxplots for each static variable
+box_plots <- map(vars, ~
+                   
+                   ssl_rsf_10 %>% 
+                   select(case_, var = .x) %>% 
+                   ggplot(aes(y = var,
+                              col = case_)) + 
+                   geom_boxplot() + 
+                   labs(title = .x))
+
+cowplot::plot_grid(plotlist = box_plots)
+
+
+# Assess Collinearity -----------------------------------------------------
+
+# Collinear predictors influence the variance estimates of the model and makes it difficult to interpret model coefficients. Determining what covariates are important requires avoiding multi-collinearity. 
+
+# Generally correlation values over 0.70 are problematic.
+
+cor(as.data.frame(ssl_rsf_10[ , 6:9]))
+
+# Check the Variance Inflation Factor. This assesses the multicollinearity across ALL the predictors, with higher values indicating high collinearity of a predictor with the rest of the set. Some sources indicate a VIF over 10 is something for concern, while other indicate 3.0 should be the threshold. 
+
+usdm::vif(as.data.frame(ssl_rsf_10[ , 6:9])) # all < 3.0
+
+# Sensitivity Analysis ----------------------------------------------------
+
+# Determine how many available points are needed to get stable coefficient estimates.
+
+# This will look at 1, 5, 20, 50, and 100 available points for each use location. 
+n.frac <- c(1, 5, 20, 50, 100)
+
+# Total available locations to be generated, based on the number of use points
+n.pts <- nrow(trk) * n.frac
+
+# Set the number of replicate runs of the model to estimate variability of the coefficient estimate across the runs
+n.rep <- 100
+
+# To run this we are creating a table that holds all the settings of each scenario. The result column holds the model results. This code is based off the Fieberg et al. 2021 publication code. For each scenario we are actually reextracting covariate values, since we have different sets of random locations each time, and running a full model.
+
+# The model run itself is done in a piped chain, where we create the track object, create the random points, extract covariate values, scale our covariates, and run the model. We will scale our covariates in the model state later on. This takes approximately 5 hours to run.
+
+wb.sim <- tibble(
+  n.pts = rep(n.pts, n.rep),
+  frac = rep(n.frac, n.rep),
+  result = map(
+    n.pts, ~
+      trk %>% 
+      random_points(n = .x) %>%
+      mutate(w = ifelse(case_ == T, 
+                        1, 
+                        5000)) %>% 
+      extract_covariates(staticcovars) %>%
+      mutate(dist_land = scale(DistLand),
+             dist_500m = scale(Dist500m),
+             depth = scale(Bathymetry),
+             slope = scale(slope)) %>%
+      glm(case_ ~ dist_land + dist_500m + depth + slope,
+          data = ., 
+          weights = w,
+          family = binomial(link = "logit")) %>%
+      broom::tidy()))
+
+# Good idea to save this so you have it and don't need to rerun in later.
+# write_rds(wb.sim, file = "../Data_Processed/ssl_sa_sim.rds")
+
+# Read in rds
+wb.sim <- read_rds("../Data_Processed/ssl_sa_sim.rds")
+
+# This is an object structure we already worked with in the amt package in week 1. We have a full list which contains the model result for each run, and that is saved for each of the 100 rows of our data frame. There are 100 rows (5 different amounts of available locations, 20 model runs each)
+
+# We can look at the result of one model run like this
+wb.sim$result[[1]]
+
+# Now to plot the results and make some conclusions from all this. We now "unnest" the results to plot the coefficient estimates from individual model fits with different sets of available data (1, 5, 20). The unnesting results in a much longer data frame. Run that first part of the code to see the result. After that we are recoding the "term" column, essentially changing the values in the column. We are plotting here the estimate, which is the beta coefficient from the glm regression for each covariate.
+
+wb.sim %>% unnest(cols = result) %>% 
+  mutate(term = case_match(term, 
+                           "(Intercept)" ~ "Intercept",
+                           "anth_risk" ~ "Human disturbance", 
+                           "woody_dist" ~ "Woody dist.",
+                           "fence_dist" ~ "Fence dist.", 
+                           "prirds_dist" ~ "Primary Rd dist.",
+                           "river_dist" ~ "River dist.",
+                           "secrds_dist" ~ "Sec Rd dist.",
+                           "waterpts_dist" ~ "Water Point dist.")) %>% 
+  
+  ggplot(aes(x = factor(frac), 
+             y = estimate)) +
+  geom_boxplot() + 
+  facet_wrap(~ term, 
+             scale  ="free") +
+  geom_jitter(alpha = 0.2) + 
+  labs(x = "Avail. points per use location", 
+       y = "Estimate") +
+  theme_light()
+
+# Pretty snazzy right? This is a key tool in making a final assessment of the minimum # of available points needed for each use location. We can see little change in the coefficient values once we have 20 points per use location, but we'll go with 50 to be safe.
+
+
+# Kelly's code ------------------------------------------------------------
+
+# # 
+ssl_new <- trk %>% 
   select(deploy_id, 
          weeklyhr_id,
-         date,
+         t_,
          year, 
          weekofyear, 
-         northing, 
-         easting) %>% 
+         y_, # # northing
+         x_, # # easting
+         used) %>% # # 
   cbind(., raster::extract(staticcovars, .)) %>% 
   rename(dist_land = DistLand, 
-         dist_500m = Dist500m) %>%
-  mutate(used = 1)
+         dist_500m = Dist500m)
 
 # Extract week of year as date from original data 
 ssl_dates <- ssl %>% 
