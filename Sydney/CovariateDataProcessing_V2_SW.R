@@ -90,7 +90,7 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # Save raster object
-# writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
+# writeRaster(bathy, "../Data_Processed/Bathymetry.tif", overwrite = TRUE)
 
 
 # Landmask ----------------------------------------------------------------
@@ -142,7 +142,7 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # saveRDS(slope, "../Data_Processed/slope.rds")
-# writeRaster(slope, "../Data_Processed/slope.tif")
+# writeRaster(slope, "../Data_Processed/slope.tif", overwrite = TRUE)
 
 
 # Distance to land --------------------------------------------------------
@@ -180,7 +180,7 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # Save output
-# writeRaster(distland2, "../Data_Processed/DistLand.tif")
+# writeRaster(distland2, "../Data_Processed/DistLand.tif", overwrite = TRUE)
 
 
 # Distance to shelf break -------------------------------------------------
@@ -211,7 +211,7 @@ dist500m <- gridDistance(bathy2,
 dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Save results
-# writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
+writeRaster(dist500m, "../Data_Processed/Dist500m.tif", overwrite = TRUE)
 
 
 # Plot results
@@ -316,7 +316,8 @@ writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
             zname = "time",
             zunit = "numeric")
 
-# saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.tif")
 
 writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
             overwrite = TRUE, 
@@ -328,7 +329,8 @@ writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
             xname = "lon",
             yname = "lat")
 
-# saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.tif")
 
 # Plot results
 fish.df <- as.data.frame(fishingbrick[[1]], xy = TRUE) %>% 
@@ -373,8 +375,8 @@ ships <- do.call(rbind, ships)
 ships <- ships %>% 
   dplyr::mutate(year = substr(AIS_ID, 11, 14))
 
-st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
-saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
+# st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp", append = FALSE)
+# saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 
 
 # Wind Speed --------------------------------------------------------------
@@ -458,7 +460,7 @@ names(wind_brick) <- t2
 wind_brick <- raster::setZ(wind_brick, t2)
 
 # Save output file
-# writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif")
+# writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif", overwrite = T)
 
 # Fun animation of the raster brick
 # animate(wind_brick, pause=0.5, n=1)
@@ -483,10 +485,10 @@ ggplot() +
 
 # animate(wind_week, pause=0.5, n=1)
 
-writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
-saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
-wind <- wind_week
-save(wind, file = "../Data_Processed/wind_weekly.rda")
+# writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
+# saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
+# wind <- wind_week
+# save(wind, file = "../Data_Processed/wind_weekly.rda")
 
 
 # Save output file
@@ -651,10 +653,10 @@ sst_week <- zApply(sst_brick, by = t2, fun = mean)
 
 # animate(sst_week, pause=0.5, n=1)
 
-writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
-saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
+# writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
+# saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
 sst <- sst_week
-save(sst, file = "../Data_Processed/sst_weekly.rda")
+# save(sst, file = "../Data_Processed/sst_weekly.rda")
 
 # writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
 #       overwrite = TRUE, format = "CDF",
