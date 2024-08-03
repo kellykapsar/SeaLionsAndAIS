@@ -80,24 +80,6 @@ wind <- readRDS("../Data_Processed/wind_weekly.rds")
 raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
 rasres <- lapply(raslist, function(x) res(x)/1000)
 
-# Extract dynamic covariate data at used locations -----
-### Modified FROM AMT PACKAGE
-# https://github.com/jmsigner/amt/blob/master/R/extract_covariates.R
-# Also helpful: https://cran.r-project.org/web/packages/amt/vignettes/p3_rsf.html
-# I modified it so that it works with weekly timescale data 
-# DOES NOT work with holes in the data set any more 
-
-# extract_covar_var_time_custom <- function(xy, t, covariates) {
-#   
-#   t_covar <- raster::getZ(covariates) # Get time slices from covariates
-#   t_obs <- format(as.POSIXct(t), "%G-W%V") # Convert timestamp to week - same week of year as lubridate::isoweek(ssl_dates$date)
-#   
-#   wr <- sapply(t_obs, function(x) which(x == t_covar)) # Identify which slice to select
-#   ev <- terra::extract(covariates, xy) # Extract covariate values for all time slices at all used locations 
-#   cov_val <- ev[cbind(seq_along(wr), wr)] # Select only the relevant time slice for each location
-#   
-#   return(cov_val) # Return the extracted covariate values
-# }
 
 # Weekly KDE home ranges --------------------------------------------------
 
@@ -124,7 +106,7 @@ pointcounts <- trk %>%
   ungroup()
 
 
-# Identifying available points --------------------------------------------
+# Identifying preliminary available points --------------------------------
 
 # Here we are generating 10 times the number of "use" points to get our "available" points as a starting point. We will need to assess what a robust minimum # of available points should be. 
 
@@ -208,7 +190,10 @@ box_plots <- map(vars, ~
 cowplot::plot_grid(plotlist = box_plots)
 
 
-# Assess Collinearity -----------------------------------------------------
+
+
+# Assess collinearity -----------------------------------------------------
+
 
 # Collinear predictors influence the variance estimates of the model and makes it difficult to interpret model coefficients. Determining what covariates are important requires avoiding multi-collinearity. 
 
@@ -221,7 +206,7 @@ cor(as.data.frame(ssl_rsf_10[ , 6:9]))
 usdm::vif(as.data.frame(ssl_rsf_10[ , 6:9])) # all < 3.0
 
 
-# Sensitivity Analysis ----------------------------------------------------
+# Sensitivity analysis ----------------------------------------------------
 
 # Determine how many available points are needed to get stable coefficient estimates.
 
@@ -299,9 +284,9 @@ ggsave("../Figures/ssl_covar_sensitivity_analysis.png", plot = p, width = 10, he
 # This is a key tool in making a final assessment of the minimum number of available points needed for each use location. There is little change in the coefficient values once there are 20 points per use location, but choosing 50 would be safe.
 
 
-# Fitting RSF models ------------------------------------------------------
+# Random points and extracting covariates ---------------------------------
 
-# Generate 50 available locations per use location:
+# Generate 50 available locations per use location.
 
 # Modify function from earlier
 # Function to generate random points for one animal
@@ -325,20 +310,115 @@ generate_random_points <- function(track_data) {
 # Split track data by animal ID
 split_trk <- split(ssl_simple, ssl_simple$weeklyhr_id)
 
+
 # Generate 50 random points for each animal and combine the results. This keeps the initial data points in the same df, but keeps track of which points are available vs used by adding a "case_" column. TRUE = use. FALSE = random.
 ssl_rsf_50 <- map_dfr(split_trk, generate_random_points)
 
-table(ssl_rsf_50$case_)
+# Save rds
+# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points.rds")
 
-# Plot use/availability
-terra::plot(ssl_rsf_50) %>%
-  # Save plot
-  ggsave("../Figures/ssl_rsf_50_use_availability.png", plot = ., width = 10, height = 8)
+# Read rds
+ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_random_points.rds")
 
 # Assign weights to available points that are very high.
-ssl_rsf_10 <- ssl_rsf_10 %>% 
+ssl_rsf_50 <- ssl_rsf_50 %>% 
   mutate(weight = ifelse(case_ == T,
                          1,
                          5000))
 
 
+## Extract static covariates -----
+ssl_rsf_50 <- ssl_rsf_50 %>%
+  extract_covariates(staticcovars) %>% 
+  # Remove points that are on land
+  filter(!is.na(Bathymetry))
+
+# Save rds
+write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
+
+# Extract week of year as date from original data
+ssl_dates <- ssl %>% 
+  st_drop_geometry() %>% 
+  group_by(weeklyhr_id) %>% 
+  summarize(date = min(date)) %>% 
+  # Add year and week of year columns
+  mutate(year = lubridate::year(date),
+         weekofyear = lubridate::isoweek(date))
+
+# Join ssl_dates with ssl_rsf_50 to add the date, year, and weekofyear columns
+ssl_rsf_50 <- ssl_rsf_50 %>%
+  left_join(ssl_dates, 
+            by = c("id" = "weeklyhr_id"))
+
+# Save rds
+write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
+
+# Read in rds
+ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
+
+
+## Extract dynamic covariates -----
+
+# Custom function
+extract_covar_var_time_custom <- function(data, t, covariates) {
+  
+  # Pull values for coordinates
+  xy <- st_coordinates(data)
+  
+  # Get time slices from covariates
+  t_covar <- raster::getZ(covariates) # YYYY-WWW
+  # Convert timestamp to week - same as weekofyear column
+  t_obs <- format(data$date, "%G-W%V")
+  
+  # For each date in t_obs, identify which slice to select 
+  wr <- sapply(t_obs, function(x) which(x == t_covar))
+  
+  # Debug print
+  print(head(wr))
+  
+  # Extract covariate values for all time slices at all used locations
+  ev <- raster::extract(covariates, xy) 
+  
+  # Debug print
+  print(dim(ev))
+  print(head(ev))
+  
+  # Select only the relevant time slice for each location
+  cov_val <- ev[cbind(seq_along(wr), wr)] 
+  
+  # Return the extracted covariate values
+  return(cov_val) 
+}
+
+# Convert to sf df
+ssl_rsf_50_sf <- ssl_rsf_50 %>% 
+  st_as_sf(coords = c("x_", "y_"),
+           crs = 32605)
+
+# Test this function on part of the data
+test <- ssl_rsf_50_sf[1:10, ]
+
+test$wind <- test %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = wind)
+
+
+# Run function on total data for each dynamic covariate (wind, sst, ship, fish)
+
+# Wind
+ssl_rsf_50_sf$sst <- ssl_rsf_50_sf %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = wind)
+                      
+
+# Test individual parts of function 
+
+# Get time slices from covariates
+t_covar <- raster::getZ(wind) # YYYY-WWW
+# Convert timestamp to week - same as weekofyear column
+t_obs <- format(test$date, "%G-W%V")
+
+# For each date in t_obs, identify which slice to select 
+wr <- sapply(t_obs, function(x) which(x == t_covar))
