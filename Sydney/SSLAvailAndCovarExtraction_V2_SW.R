@@ -62,13 +62,13 @@ trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>%
 
 # Read in covariates 
 landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
-dist_500m <- raster("../Data_Processed/Dist500m.tif") %>% 
+dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
   raster::mask(landmask, maskvalue = 1)
-depth <- raster("../Data_Processed/Bathymetry.tif") %>% 
+depth <- raster("../Data_Processed/Bathymetry.tif") %>%
   raster::mask(landmask, maskvalue = 1)
-dist_land <- raster("../Data_Processed/DistLand.tif") %>% 
+dist_land <- raster("../Data_Processed/DistLand.tif") %>%
   raster::mask(landmask, maskvalue = 1)
-slope <- raster("../Data_Processed/slope.tif") %>% 
+slope <- raster("../Data_Processed/slope.tif") %>%
   raster::mask(landmask, maskvalue = 1)
 
 # ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
@@ -156,44 +156,8 @@ ssl_rsf_10 <- ssl_rsf_10 %>%
   # Remove points that are on land
   filter(!is.na(Bathymetry))
 
-# Make vector of variable names
-vars <- ssl_rsf_10 %>% 
-  select(DistLand:slope) %>% 
-  names()
-
-# Histograms for each static variable
-hist_plots <- map(vars, ~
-                    
-                    ssl_rsf_10 %>% 
-                    select(case_, var = .x) %>% 
-                    ggplot(aes(x = var,
-                               after_stat(density),
-                               col = case_)) + 
-                    geom_freqpoly(size = .7,
-                                  bins = 30) + 
-                    labs(title = .x))
-
-# Put all plots into one grid. Expand to view clearly.
-cowplot::plot_grid(plotlist = hist_plots)
-
-
-# Boxplots for each static variable
-box_plots <- map(vars, ~
-                   
-                   ssl_rsf_10 %>% 
-                   select(case_, var = .x) %>% 
-                   ggplot(aes(y = var,
-                              col = case_)) + 
-                   geom_boxplot() + 
-                   labs(title = .x))
-
-cowplot::plot_grid(plotlist = box_plots)
-
-
-
 
 # Assess collinearity -----------------------------------------------------
-
 
 # Collinear predictors influence the variance estimates of the model and makes it difficult to interpret model coefficients. Determining what covariates are important requires avoiding multi-collinearity. 
 
@@ -333,8 +297,41 @@ ssl_rsf_50 <- ssl_rsf_50 %>%
   # Remove points that are on land
   filter(!is.na(Bathymetry))
 
+# Make vector of static covariate names
+vars <- ssl_rsf_50 %>% 
+  select(DistLand:slope) %>% 
+  names()
+
+# Histograms for each static variable
+hist_plots <- map(vars, ~
+                    
+                    ssl_rsf_50 %>% 
+                    select(case_, var = .x) %>% 
+                    ggplot(aes(x = var,
+                               after_stat(density),
+                               col = case_)) + 
+                    geom_freqpoly(lwd = .7,
+                                  bins = 30) + 
+                    labs(title = .x))
+
+# Put all plots into one grid. Expand to view clearly.
+cowplot::plot_grid(plotlist = hist_plots) %>% ggsave("../Figures/ssl50_histplots_covar_sensitivity_analysis_20240805.png", plot = ., width = 10, height = 8)
+
+
+# Boxplots for each static variable
+box_plots <- map(vars, ~
+                   
+                   ssl_rsf_50 %>% 
+                   select(case_, var = .x) %>% 
+                   ggplot(aes(y = var,
+                              col = case_)) + 
+                   geom_boxplot() + 
+                   labs(title = .x))
+
+cowplot::plot_grid(plotlist = box_plots) %>% ggsave("../Figures/ssl50_boxplots_covar_sensitivity_analysis_20240805.png", plot = ., width = 10, height = 8)
+
 # Save rds
-write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
+# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
 
 # Extract week of year as date from original data
 ssl_dates <- ssl %>% 
@@ -351,7 +348,7 @@ ssl_rsf_50 <- ssl_rsf_50 %>%
             by = c("id" = "weeklyhr_id"))
 
 # Save rds
-write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
+# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
 
 # Read in rds
 ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
@@ -448,6 +445,7 @@ ssl_rsf_50_sf$fish <- ssl_rsf_50_sf %>%
 
 # Convert column names to lowercase
 colnames(ssl_rsf_50_sf) <- tolower(colnames(ssl_rsf_50_sf))
+
 
 # Save outputs
 write_rds(ssl_rsf_50_sf, "../Data_Processed/ssl_extracted_covariates_20240805.rds")
