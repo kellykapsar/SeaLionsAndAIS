@@ -71,14 +71,14 @@ dist_land <- raster("../Data_Processed/DistLand.tif") %>%
 slope <- raster("../Data_Processed/slope.tif") %>% 
   raster::mask(landmask, maskvalue = 1)
 
-ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
-fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
-sst <- readRDS("../Data_Processed/sst_weekly.rds")
-wind <- readRDS("../Data_Processed/wind_weekly.rds")
+# ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
+# fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
+# sst <- raster("../Data_Processed/sst_weekly.tif")
+# wind <- raster("../Data_Processed/wind_weekly.tif")
 
 # Create a list of all covariate files and check resolution 
-raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
-rasres <- lapply(raslist, function(x) res(x)/1000)
+# raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
+# rasres <- lapply(raslist, function(x) res(x)/1000)
 
 
 # Weekly KDE home ranges --------------------------------------------------
@@ -370,18 +370,11 @@ extract_covar_var_time_custom <- function(data, t, covariates) {
   # Convert timestamp to week - same as weekofyear column
   t_obs <- format(data$date, "%G-W%V")
   
-  # For each date in t_obs, identify which slice to select 
+  # For each date in t_obs, identify which slice matches from the covariate times
   wr <- sapply(t_obs, function(x) which(x == t_covar))
-  
-  # Debug print
-  print(head(wr))
   
   # Extract covariate values for all time slices at all used locations
   ev <- raster::extract(covariates, xy) 
-  
-  # Debug print
-  print(dim(ev))
-  print(head(ev))
   
   # Select only the relevant time slice for each location
   cov_val <- ev[cbind(seq_along(wr), wr)] 
@@ -395,25 +388,14 @@ ssl_rsf_50_sf <- ssl_rsf_50 %>%
   st_as_sf(coords = c("x_", "y_"),
            crs = 32605)
 
-# Test this function on part of the data
-test <- ssl_rsf_50_sf[1:10, ]
+## Test this function on part of the data -----
 
-test$wind <- test %>% 
-  extract_covar_var_time_custom(data = .,
-                                t = date,
-                                covariates = wind)
-
-
-# Run function on total data for each dynamic covariate (wind, sst, ship, fish)
-
-# Wind
-ssl_rsf_50_sf$sst <- ssl_rsf_50_sf %>% 
-  extract_covar_var_time_custom(data = .,
-                                t = date,
-                                covariates = wind)
-                      
+# Subset data to test
+test <- ssl_rsf_50_sf[100000:100010, ]
 
 # Test individual parts of function 
+xy <- st_coordinates(test)
+xy
 
 # Get time slices from covariates
 t_covar <- raster::getZ(wind) # YYYY-WWW
@@ -422,3 +404,53 @@ t_obs <- format(test$date, "%G-W%V")
 
 # For each date in t_obs, identify which slice to select 
 wr <- sapply(t_obs, function(x) which(x == t_covar))
+wr
+
+# Extract covariate values for all time slices at all used locations
+ev <- raster::extract(wind, xy) 
+ev
+
+# Select only the relevant time slice for each location
+cov_val <- ev[cbind(seq_along(wr), wr)] 
+cov_val
+
+# Run function on full test data
+test$wind <- test %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = wind)
+
+# Run function on total data for each dynamic covariate (wind, sst, ship, fish)
+
+# Wind
+ssl_rsf_50_sf$wind <- ssl_rsf_50_sf %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = wind)
+
+# Sea surface temperature
+ssl_rsf_50_sf$sst <- ssl_rsf_50_sf %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = sst)
+
+# Other ships
+ssl_rsf_50_sf$ship <- ssl_rsf_50_sf %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = shippingbrick)
+
+# Fishing
+ssl_rsf_50_sf$fish <- ssl_rsf_50_sf %>% 
+  extract_covar_var_time_custom(data = .,
+                                t = date,
+                                covariates = fishingbrick)
+
+# Convert column names to lowercase
+colnames(ssl_rsf_50_sf) <- tolower(colnames(ssl_rsf_50_sf))
+
+# Save outputs
+write_rds(ssl_rsf_50_sf, "../Data_Processed/ssl_extracted_covariates_20240805.rds")
+                      
+
+
