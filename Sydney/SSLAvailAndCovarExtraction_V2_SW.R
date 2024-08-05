@@ -13,6 +13,9 @@ library(ggmap)
 library(amt) 
 library(tidyverse)
 
+# Load covariate data from source script
+source("Sydney/SourceScript_CovariateDataProcessing_V2_SW.R")
+
 # Read in data -----
 
 # Set seed
