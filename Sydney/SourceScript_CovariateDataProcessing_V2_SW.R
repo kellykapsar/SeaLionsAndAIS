@@ -12,7 +12,7 @@ library(raster)
 library(marmap)
 library(ncdf4)
 library(anytime)
-library(rgdal)
+install.packages("rgdal")
 library(scales)
 library(tidyverse)
 
@@ -75,22 +75,6 @@ bathyDf <- as.data.frame(bathy, xy = TRUE) %>%
   drop_na()
 
 colnames(bathyDf) <- c("x", "y", "depth")
-
-
-# Map of study area with bathymetric data 
-ggplot() +
-  geom_sf(data = basemap.crop, 
-          fill = "gray", 
-          color = "black",
-          lwd = 0.5) +
-  geom_raster(data = bathyDf, 
-              aes(x = x, y = y, fill = depth), 
-              alpha = 0.9) +
-  scale_fill_gradient2() +
-  geom_sf(data = study, fill = NA, color = "red")
-
-# Save raster object
-# writeRaster(bathy, "../Data_Processed/Bathymetry.tif", overwrite = TRUE)
 
 
 # Landmask ----------------------------------------------------------------
@@ -324,6 +308,23 @@ wind.df <- as.data.frame(wind.r, xy = TRUE) %>%
 colnames(wind.df) <- c("x", "y", "windspeed")
 
 plot(wind.r)
+
+
+test <- aperm(wind.array, c(2, 1, 3)) # resize array
+# Make a raster brick of all values 
+wind_brick <- brick(test, xmn = min(lon), xmx = max(lon), 
+                    ymn = min(lat), ymx = max(lat), 
+                    crs = CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
+  flip(direction = "y") %>%
+  raster::projectRaster(crs = prj) 
+
+# Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
+t2 <- as.POSIXct("1900-01-01 00:00") + as.difftime(t, units = "hours")
+t2 <- format(t2, "%G-W%V")
+
+# Name raster layers after the date that they portray
+names(wind_brick) <- t2
+wind_brick <- raster::setZ(wind_brick, t2)
 
 
 # Calculate mean monthly wind rasters 
