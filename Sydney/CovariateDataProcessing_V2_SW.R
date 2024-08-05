@@ -305,32 +305,32 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 # Save raster bricks as netcdf files 
 
 # Save output file
-writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-            overwrite = TRUE, 
-            format = "CDF",
-            varname = "intensity", 
-            varunit = "km",
-            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-            xname = "lon", 
-            yname = "lat",
-            zname = "time",
-            zunit = "numeric")
-
-saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
-writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.tif")
-
-writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-            overwrite = TRUE, 
-            format = "CDF",
-            varname = "intensity", 
-            varunit = "km",
-            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-            zname = "time", 
-            xname = "lon",
-            yname = "lat")
-
-saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
-writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.tif")
+# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+#             overwrite = TRUE, 
+#             format = "CDF",
+#             varname = "intensity", 
+#             varunit = "km",
+#             longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+#             xname = "lon", 
+#             yname = "lat",
+#             zname = "time",
+#             zunit = "numeric")
+# 
+# saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.tif")
+# 
+# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+#             overwrite = TRUE, 
+#             format = "CDF",
+#             varname = "intensity", 
+#             varunit = "km",
+#             longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+#             zname = "time", 
+#             xname = "lon",
+#             yname = "lat")
+# 
+# saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.tif")
 
 # Plot results
 fish.df <- as.data.frame(fishingbrick[[1]], xy = TRUE) %>% 
@@ -485,9 +485,9 @@ ggplot() +
 
 # animate(wind_week, pause=0.5, n=1)
 
+wind <- wind_week
 # writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
 # saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
-# wind <- wind_week
 # save(wind, file = "../Data_Processed/wind_weekly.rda")
 
 
@@ -653,9 +653,9 @@ sst_week <- zApply(sst_brick, by = t2, fun = mean)
 
 # animate(sst_week, pause=0.5, n=1)
 
-# writeRaster(sst_week, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
-# saveRDS(sst_week, "../Data_Processed/sst_weekly.rds")
 sst <- sst_week
+# writeRaster(sst, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
+# saveRDS(sst, "../Data_Processed/sst_weekly.rds")
 # save(sst, file = "../Data_Processed/sst_weekly.rda")
 
 # writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
