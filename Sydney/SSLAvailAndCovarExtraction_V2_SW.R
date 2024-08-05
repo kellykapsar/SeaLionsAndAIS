@@ -1,7 +1,7 @@
 # Title: SSLAvailAndCovarExtraction
-# Author: Kelly Kapsar
+# Author: Kelly Kapsar, Sydney Waloven
 # Date: 2024-07-22
-# Description: R script version of 2_SSLAvailAndCovarExtraction.Rmd for readability
+# Description: R script version of 2_SSLAvailAndCovarExtraction.Rmd for readability. Original script by Kelly Kapsar. Edits and updates made by Sydney Waloven.
 
 
 # setup -------------------------------------------------------------------
@@ -36,9 +36,6 @@ study <- coords %>%
   st_cast("POLYGON") %>% 
   st_transform(prj)
 
-# Read in clean, non-land ssl used locations
-# ssl <- readRDS("../Data_Processed/Telemetry/watersealis.rds")
-# ssl$used <- 1
 
 # # Read in resampled track rds - each animal's data is nested in a df row. This contains clean, non-land ssl used locations transformed to an amt track.
 trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>% 
@@ -451,13 +448,13 @@ ssl_rsf_50_sf$sst <- ssl_rsf_50_sf %>%
 ssl_rsf_50_sf$ship <- ssl_rsf_50_sf %>% 
   extract_covar_var_time_custom(data = .,
                                 t = date,
-                                covariates = shippingbrick)
+                                covariates = ship)
 
 # Fishing
 ssl_rsf_50_sf$fish <- ssl_rsf_50_sf %>% 
   extract_covar_var_time_custom(data = .,
                                 t = date,
-                                covariates = fishingbrick)
+                                covariates = fish)
 
 # Convert column names to lowercase
 colnames(ssl_rsf_50_sf) <- tolower(colnames(ssl_rsf_50_sf))
