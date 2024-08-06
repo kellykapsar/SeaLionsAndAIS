@@ -51,7 +51,7 @@ print(paste0("Processing ", length(weeklyhr_ids), " total weeklyhr_ids."))
 nofish <- ships[ships$AIS_Typ != "Fishing",]
 fish <- ships[ships$AIS_Typ == "Fishing",]
 
-# Afunction to create a cost distance raster tot he nearest ship using a set of points
+# A function to create a cost distance raster to the nearest ship using a set of points
 # with their associated homerange polygon, vector lines for vessels, and a raster
 # of land pixels 
 extractcostdist <- function(pts, lines, land, hrs){
