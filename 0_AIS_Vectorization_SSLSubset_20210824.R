@@ -2,6 +2,7 @@
 # exactEarth CSV Data
 # Created by Ben Sullender & Kelly Kapsar, 2021
 
+
 # Start timer
 start <- proc.time()
 
