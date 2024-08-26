@@ -1,6 +1,8 @@
-setwd("C:/Users/12487/OneDrive/sea_lion")
+# setwd("C:/Users/12487/OneDrive/sea_lion")
 
-d <- readRDS("UsedAndAvail_WeeklyKDE_20220706.rds") 
+library(dplyr)
+
+d <- readRDS("../Data_Processed/Telemetry/UsedAndAvail_WeeklyKDE_20220706.rds") 
 
 all <- d %>%
   as_tibble() %>% 
@@ -86,7 +88,7 @@ inits <- function(){
 
 params <- c( "beta0", "beta1", "mu_beta0", "mu_beta1", "sd_beta0", "sd_beta1" )
 
-library(nimble)
+library(nimble)s
 
 begin <- Sys.time()
 out <- nimble::nimbleMCMC(
@@ -98,9 +100,11 @@ out <- nimble::nimbleMCMC(
   thin = 1, 
   niter = 1000, 
   nburnin = 500, 
-  nchains = 1
+  nchains = 4
 )
 done <- Sys.time()
 done - begin
 
-MCMCvis::MCMCsummary( out )
+MCMCvis::MCMCsummary( out, round=2 )
+MCMCvis::MCMCtrace(out, pdf=FALSE)
+MCMCvis::MCMCplot(out)
