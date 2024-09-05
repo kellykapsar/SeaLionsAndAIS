@@ -517,34 +517,3 @@ ssl_steps %>%
 # Save data
 saveRDS(seali_tracks, "../Data_Processed/seali_tracks.rds")
 saveRDS(ssl_steps, "../Data_Processed/ssl_steps_resampled.rds")
-
-# Plot individual SSL locs ------------------------------------------------
-
-# # Using ggplot without a background
-
-# Use separate axes for each individual (add scales = "free" to facet_wrap
-# + fig.height = 12, fig.width = 12
-ggplot(sealis,
-       aes(x = lon, y = lat)) +
-  geom_point() +
-  facet_wrap(~ deploy_id, scales = "free")
-
-# Test individual seals
-ssl781 <- sealis %>%
-  filter(deploy_id == "SSL2019781KOD")
-
-# Leaflet map - works but there are no points on the map
-leaflet(ssl781) %>% 
-  addTiles() %>% 
-  addCircles(~lon, ~lat)
-
-# ggmap - doesn't work
-map <- get_map(location = c(lon = mean(ssl781$lon),
-                            lat = mean(ssl781$lat)),
-               zoom = 7,
-               maptype = "hybrid",
-               source = "google")
-
-ggmap(map) +
-  geom_point(data = ssl781,
-             aes(x = lon, y = lat), size = 2.5)
