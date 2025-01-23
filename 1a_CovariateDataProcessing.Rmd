@@ -19,7 +19,7 @@ library(ggplot2)
 library(marmap)
 library(ncdf4)
 library(anytime)
-library(rgdal)
+# library(rgdal)
 library(scales)
 
 ```

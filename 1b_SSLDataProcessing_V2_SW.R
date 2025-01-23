@@ -171,7 +171,8 @@ sealis$dayofyear <- lubridate::date(sealis$date)
 sealis <- sealis[-which(sealis$quality %in% c("A", "B", "0", "Z")), ]
 
 # 40 duplicated rows (excluding geometry column)
-test <- duplicated(data.frame(sealis))
+# test <- duplicated(sealis)
+
 # Remove duplicated rows 
 sealis <- sealis[which(duplicated(data.frame(sealis)) == FALSE), ]
 
@@ -391,7 +392,7 @@ ptcts <- left_join(ptcts_month, ptcts_biweek, by = "deploy_id")
 ptcts <- left_join(ptcts, ptcts_week, by = "deploy_id")
 ptcts <- left_join(ptcts, ptcts_day, by = "deploy_id")
 
-# write.csv(ptcts, "../Data_Processed/SSL_PtCts.csv")
+write.csv(ptcts, "../Data_Processed/SSL_PtCts.csv")
 
 # Save clean data ---------------------------------------------------------
 
@@ -399,7 +400,7 @@ ptcts <- left_join(ptcts, ptcts_day, by = "deploy_id")
 watersealis$choice_id <- 1:length(watersealis$deploy_id)
 
 # Save clean data output 
-# saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
+saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 
 # amt: creating tracks for all sea lions ----------------------------------
 

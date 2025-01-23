@@ -8,19 +8,20 @@
 
 # Import libraries
 library(sf)
-library(raster)
+# library(raster)
 library(marmap)
 library(ncdf4)
 library(anytime)
-library(rgdal)
+# library(rgdal)
 library(scales)
 library(tidyverse)
+library(terra)
 
 
 # Study area boundaries ---------------------------------------------------
 
 # Projection information for WGS84/UTM Zone 5N (EPSG:32605)
-prj <- 32605
+prj <- "epsg:32605"
 
 # Create study area polygon
 coords <- data.frame(lat = c(56, 62, 62, 56, 56), 
@@ -67,9 +68,9 @@ studylatlon <- study %>%
 # # resolution units are in minutes (3 minutes = 0.05 degrees)
 
 # Import raster, reproject to 4336, and crop to study area
-bathy <- raster::raster("../Data_Raw/GEBCO_16_Aug_2021/gebco_2021_n64.0_s54.0_w-157.0_e-141.0.tif") %>%
-  projectRaster(crs = prj) %>%
-  raster::crop(study)
+bathy <- terra::rast("../Data_Raw/GEBCO_16_Aug_2021/gebco_2021_n64.0_s54.0_w-157.0_e-141.0.tif") %>%
+  terra::project(prj) %>%
+  terra::crop(study)
 
 bathyDf <- as.data.frame(bathy, xy = TRUE) %>%
   drop_na()
@@ -235,7 +236,7 @@ ggplot() +
 start <- proc.time()
 
 # Boundary for AIS data acquisition
-aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% 
+aisbound_sf <- st_read("../Data_Raw/ais_reshape.shp") %>% 
   st_transform(prj) %>% 
   st_crop(study)
 
