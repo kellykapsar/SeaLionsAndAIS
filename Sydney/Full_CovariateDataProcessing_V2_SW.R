@@ -91,7 +91,7 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # Save raster object
-# writeRaster(bathy, "../Data_Processed/Bathymetry.tif", overwrite = TRUE)
+terra::writeRaster(bathy, "../Data_Processed/Bathymetry.tif", overwrite = TRUE)
 
 
 # Landmask ----------------------------------------------------------------
@@ -118,12 +118,12 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data = study, fill = NA, color = "red")
 
-# writeRaster(landmask, "../Data_Processed/Landmask_GEBCO.tif", overwrite = TRUE)
+terra::writeRaster(landmask, "../Data_Processed/Landmask_GEBCO.tif", overwrite = TRUE)
 
 
 # Slope -------------------------------------------------------------------
 
-slope <- terrain(bathy, opt = "slope", unit = "radians", neighbors = 8)
+slope <- terrain(bathy, v = "slope", unit = "radians", neighbors = 8)
 
 slopeDf <- as.data.frame(slope, xy = TRUE) %>% 
   drop_na()
@@ -143,25 +143,25 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # saveRDS(slope, "../Data_Processed/slope.rds")
-# writeRaster(slope, "../Data_Processed/slope.tif", overwrite = TRUE)
+writeRaster(slope, "../Data_Processed/slope.tif", overwrite = TRUE)
 
 
 # Distance to land --------------------------------------------------------
 
 # Calculate distance to nearest NA cell for all cells in landmask raster
 distland2 <- bathy
-values(distland2)[values(distland2) <= 0] = NA # set all non-positive values in distland2 to "NA" 
+# values(distland2)[values(distland2) <= 0] = NA # set all non-positive values in distland2 to "NA" 
 
 # ID cells on land and water
 land <- distland2 > 0
 water <- distland2 <= 0
 
 # Land = 1, isobath = 2
-distland2[water] <- NA
-distland2[land] <- 2
+distland2[water] <- 0
+distland2[land] <- 1
 
 # Calculate distance to land 
-distland2 <- gridDistance(distland2, origin = 2)/1000
+distland2 <- gridDist(distland2, target = 1)/1000
 
 # Plot results
 distland2.df <- as.data.frame(distland2, xy = TRUE) %>% 
@@ -181,7 +181,7 @@ ggplot() +
   geom_sf(data = study, fill = NA, color = "red")
 
 # Save output
-# writeRaster(distland2, "../Data_Processed/DistLand.tif", overwrite = TRUE)
+writeRaster(distland2, "../Data_Processed/DistLand.tif", overwrite = TRUE)
 
 
 # Distance to shelf break -------------------------------------------------
@@ -200,20 +200,15 @@ deep <- bathy2 < -510
 
 # Land = 1, isobath = 2
 bathy2[!shallow & !deep] <- 2
-bathy2[raster::coordinates(bathy2)[,2] > 6650000] <- 0 # This removes the deeper parts of PWS 
-bathy2[land] <- 1
+bathy2[terra::crds(bathy2)[,2] > 6650000] <- 0 # This removes the deeper parts of PWS 
+bathy2[land] <- NA
 
 # Calculate distance to nearest cell with a value of 2 (going around any cell with a value of 1)
-dist500m <- gridDistance(bathy2, 
-                         origin = 2,
-                         omit = 1)/1000
+dist500m <- terra::gridDist(bathy2, 
+                         target = 2)/1000
 
 # Crop to study area 
-dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
-
-# Save results
-writeRaster(dist500m, "../Data_Processed/Dist500m.tif", overwrite = TRUE)
-
+# dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Plot results
 dist500m.df <- as.data.frame(dist500m, xy = TRUE) %>% 
@@ -230,6 +225,8 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data = study, fill = NA, color = "red")
 
+# Save results
+writeRaster(dist500m, "../Data_Processed/Dist500m.tif", overwrite = TRUE)
 
 # AIS Data - Intensity ----------------------------------------------------
 
@@ -254,37 +251,22 @@ tankerlist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/",
 
 # Create raster bricks for each ship type -----
 
-fishingras <- lapply(fishinglist, 
-                     # Create a raster by combining file path with current list item
-                     function(x) {projectRaster(raster::raster(
-                       paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
-                       crs = prj)} )
 
-# Combine the list of raster objects into one raster brick
-fishingbrick <- raster::brick(fishingras) %>%
-  # Mask the raster brick using 'aisbound_sp'
-  raster::mask(aisbound_sp)
+prep_ais <- function(ls){
+  ras <- lapply(ls, 
+             # Create a raster by combining file path with current list item
+             function(x) {terra::project(terra::rast(
+               paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
+               y = prj)} ) %>% 
+    terra::rast() %>% 
+    terra::mask(aisbound_sf)
+}
 
-otherras <- lapply(otherlist, 
-                   function(x) {projectRaster(raster::raster(
-                     paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)),
-                     crs = prj)} )
-otherbrick <- raster::brick(otherras) %>% 
-  raster::mask(aisbound_sp)
+fishingbrick <- prep_ais(fishinglist)
+cargobrick <- prep_ais(cargolist)
+tankerbrick <- prep_ais(tankerlist)
+otherbrick <- prep_ais(otherlist)
 
-cargoras <- lapply(cargolist, 
-                   function(x) {projectRaster(raster::raster(
-                     paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
-                     crs = prj)} )
-cargobrick <- raster::brick(cargoras) %>%
-  raster::mask(aisbound_sp)
-
-tankerras <- lapply(tankerlist, 
-                    function(x) {projectRaster(raster::raster(
-                      paste0("../Data_Raw/AIS_SSLWeeklySubset/Raster/5000m/", x)), 
-                      crs = prj)})
-tankerbrick <- raster::brick(tankerras) %>% 
-  raster::mask(aisbound_sp)
 
 shippingbrick <- otherbrick + cargobrick + tankerbrick
 
@@ -306,32 +288,25 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 # Save raster bricks as netcdf files 
 
 # Save output file
-# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-#             overwrite = TRUE, 
-#             format = "CDF",
-#             varname = "intensity", 
-#             varunit = "km",
-#             longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-#             xname = "lon", 
-#             yname = "lat",
-#             zname = "time",
-#             zunit = "numeric")
-# 
-# saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
-# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.tif")
-# 
-# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-#             overwrite = TRUE, 
-#             format = "CDF",
-#             varname = "intensity", 
-#             varunit = "km",
-#             longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-#             zname = "time", 
-#             xname = "lon",
-#             yname = "lat")
-# 
-# saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
-# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.tif")
+terra::writeCDF(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+            overwrite = TRUE,
+            varname = "intensity",
+            unit = "km",
+            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+            zname = "time")
+
+saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+terra::writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.tif", overwrite=TRUE)
+
+terra::writeCDF(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+            overwrite = TRUE,
+            varname = "intensity",
+            unit = "km",
+            longname = "Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+            zname = "time")
+
+saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+terra::writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.tif")
 
 # Plot results
 fish.df <- as.data.frame(fishingbrick[[1]], xy = TRUE) %>% 
@@ -355,27 +330,27 @@ ggplot() +
   scale_fill_gradient2(trans = "log10", low = "black", mid = "gray", high = "red")
 
 
-
-# AIS Data - Proximity ----------------------------------------------------
-
-# Import ship data, and generate year value
-# These data were generated by the 0_AIS_Vectorization_SSLSubset_20210824.R script
-shiplist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", 
-                      pattern = ".shp")
-
-# Create sf objects
-ships <- lapply(shiplist, 
-                function(x) {st_read(
-                  paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% 
-                    st_transform(prj)})
-
-# Combine all ships into one sf object
-ships <- do.call(rbind, ships)
-
-# Extract year from AIS_ID
-ships <- ships %>% 
-  dplyr::mutate(year = substr(AIS_ID, 11, 14))
-
+# NOT SURE IF THIS PART IS NEEDED (IF SO, ADD INTO OUTPUT OF 0 SCRIPT.)
+# # AIS Data - Proximity ----------------------------------------------------
+# 
+# # Import ship data, and generate year value
+# # These data were generated by the 0_AIS_Vectorization_SSLSubset_20210824.R script
+# shiplist <- list.files("../Data_Raw/AIS_SSLWeeklySubset/Vector", 
+#                       pattern = ".shp")
+# 
+# # Create sf objects
+# ships <- lapply(shiplist, 
+#                 function(x) {st_read(
+#                   paste0("../Data_Raw/AIS_SSLWeeklySubset/Vector/", x)) %>% 
+#                     st_transform(prj)})
+# 
+# # Combine all ships into one sf object
+# ships <- do.call(rbind, ships)
+# 
+# # Extract year from AIS_ID
+# ships <- ships %>% 
+#   dplyr::mutate(year = substr(AIS_ID, 11, 14))
+# 
 # st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp", append = FALSE)
 # saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 
@@ -420,12 +395,12 @@ wind.slice <- wind.array[,,1]
 
 dim(wind.slice) #2dim
 
-wind.r <- raster(t(wind.slice), xmn = min(lon), xmx = max(lon), 
-                 ymn = min(lat), ymx = max(lat),
+wind.r <- terra::rast(t(wind.slice), extent=ext(min(lon), max(lon), 
+                 min(lat), max(lat)),
                  # Found projection on the website
-                 crs = CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
-  flip(direction = "y")%>%
-  raster::projectRaster(crs = prj)
+                 crs = "+proj=longlat +datum=WGS84 +no_defs") %>%
+  terra::flip(direction = "vertical")%>%
+  terra::project(y = prj)
 
 wind.df <- as.data.frame(wind.r, xy = TRUE) %>%
   drop_na()
@@ -446,11 +421,12 @@ ggplot() +
 
 test <- aperm(wind.array, c(2, 1, 3)) # resize array
 # Make a raster brick of all values 
-wind_brick <- brick(test, xmn = min(lon), xmx = max(lon), 
-                    ymn = min(lat), ymx = max(lat), 
-                    crs = CRS("+proj=longlat +datum=WGS84 +no_defs")) %>% 
-  flip(direction = "y") %>%
-  raster::projectRaster(crs = prj) 
+wind_brick <- terra::rast(test,  extent=ext(min(lon), max(lon), 
+                                            min(lat), max(lat)),
+                          # Found projection on the website
+                          crs = "+proj=longlat +datum=WGS84 +no_defs")  %>% 
+  terra::flip(direction = "vertical") %>%
+  terra::project(y = prj) 
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t2 <- as.POSIXct("1900-01-01 00:00") + as.difftime(t, units = "hours")
@@ -458,16 +434,15 @@ t2 <- format(t2, "%G-W%V")
 
 # Name raster layers after the date that they portray
 names(wind_brick) <- t2
-wind_brick <- raster::setZ(wind_brick, t2)
 
 # Save output file
-# writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif", overwrite = T)
+writeRaster(wind_brick, "../Data_Processed/wind_AOOS_cropped_4336.tif", overwrite = T)
 
 # Fun animation of the raster brick
 # animate(wind_brick, pause=0.5, n=1)
 
 # Calculate mean monthly wind rasters 
-wind_week <- zApply(wind_brick, t2, fun = mean)
+wind_week <- terra::tapp(wind_brick, t2, fun = mean)
 
 # animate(wind_week, pause=0.5, n=1)
 
@@ -487,70 +462,71 @@ ggplot() +
 # animate(wind_week, pause=0.5, n=1)
 
 wind <- wind_week
-# writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
-# saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
+writeRaster(wind_week, "../Data_Processed/wind_weekly.tif", overwrite = T)
+saveRDS(wind_week, "../Data_Processed/wind_weekly.rds")
 # save(wind, file = "../Data_Processed/wind_weekly.rda")
 
 
 # Save output file
-# writeRaster(wind_week, "../Data_Processed/wind_weekly.nc",
-# overwrite = TRUE, format = "CDF",
-# varname = "wind_speed", varunit = "m/s",
-# longname = "Wind Speed -- raster brick to netCDF",
-# xname = "lon", yname = "lat", zname = "time",
-# zunit = "numeric")
+terra::writeCDF(wind_week, "../Data_Processed/wind_weekly.nc",
+        overwrite = TRUE,
+        varname = "wind_speed",
+        unit =  "m/s",
+        longname = "Wind Speed -- raster brick to netCDF",
+        zname = "time")
 
-# Test to make sure that the netcdf file saved correctly. #
-
-test <- nc_open("../Data_Processed/wind_weekly.nc")
-
-# Save metadata to a text file
-{
-  sink('../Data_Processed/WIND_Monthly.txt')
-  print(test)
-  sink()
-}
-
-# Read lat lon and time for each observation
-lon <- ncvar_get(test, "lon")
-lat <- ncvar_get(test, "lat", verbose = F)
-t <- ncvar_get(test, "time")
-
-head(lon)
-
-# Read in data from the wind variable and verify the dimensions of the array
-test.array <- ncvar_get(test, "wind_speed") # 3dim array
-dim(test.array)
-
-# Identify fill value and replace with NA
-fillvalue <- ncatt_get(test, "wind_speed", "_FillValue")
-fillvalue
-
-test.array[test.array == fillvalue$value] <- NA
-
-nc_close(test)
-
-test_brick <- brick(test.array, xmn = min(lon), xmx = max(lon), 
-                    ymn = min(lat), ymx = max(lat), 
-                    crs = prj) 
-
-plot(test_brick[[1]])
-
-
-test.df <- as.data.frame(test_brick[[1]], xy = TRUE)
-colnames(test.df) <- c("x", "y", "windspeed")
-
-plot(test.df) # previously test.r but test.r is not called anywhere else?
-
-
-# Map of study area with wind data
-ggplot() +
-  geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
-  geom_raster(data = test.df, 
-              aes(x = x, y = y, fill = windspeed), 
-              alpha = 0.9) +
-  scale_fill_gradient2() +
-  geom_sf(data = study, fill = NA, color = "red")
+# # Test to make sure that the netcdf file saved correctly. #
+# 
+# test <- nc_open("../Data_Processed/wind_weekly.nc")
+# 
+# # Save metadata to a text file
+# {
+#   sink('../Data_Processed/WIND_Monthly.txt')
+#   print(test)
+#   sink()
+# }
+# 
+# # Read lat lon and time for each observation
+# lon <- ncvar_get(test, "easting")
+# lat <- ncvar_get(test, "northing")
+# t <- ncvar_get(test, "time")
+# 
+# head(lon)
+# 
+# # Read in data from the wind variable and verify the dimensions of the array
+# test.array <- ncvar_get(test, "wind_speed") # 3dim array
+# dim(test.array)
+# 
+# # Identify fill value and replace with NA
+# fillvalue <- ncatt_get(test, "wind_speed", "_FillValue")
+# fillvalue
+# 
+# test.array[test.array == fillvalue$value] <- NA
+# 
+# nc_close(test)
+# 
+# test_brick <- rast(test.array,  
+#                    extent=ext(min(lon), max(lon), min(lat), max(lat)),
+#                    crs = prj) %>% 
+#   terra::transpose()
+# 
+# plot(test_brick[[1]])
+# 
+# 
+# test.df <- as.data.frame(test_brick[[1]], xy = TRUE)
+# colnames(test.df) <- c("x", "y", "windspeed")
+# 
+# plot(test.df) # previously test.r but test.r is not called anywhere else?
+# 
+# 
+# # Map of study area with wind data
+# ggplot() +
+#   geom_sf(data = basemap.crop, fill = "gray", color = "black", lwd = 0.5) +
+#   geom_raster(data = test.df, 
+#               aes(x = x, y = y, fill = windspeed), 
+#               alpha = 0.9) +
+#   scale_fill_gradient2() +
+#   geom_sf(data = study, fill = NA, color = "red")
 
 
 # Sea Surface Temperature -------------------------------------------------
@@ -604,13 +580,15 @@ sst.slice <- sst.array[,,1]
 
 dim(sst.slice) #2dim
 
-sst.r <- raster(t(sst.slice), xmn = min(lon), xmx = max(lon),
-                ymn = min(lat), ymx = max(lat),
-                # Found projection on the website
-                crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ")) %>%
-  flip(direction = "y") %>%
-  raster::projectRaster(crs = prj) %>%
-  raster::crop(study)
+sst.r <- terra::rast(t(sst.slice), 
+                  extent=ext(min(lon), max(lon), 
+                           min(lat), max(lat)),
+                  # Found projection on the website
+                  crs = "+proj=longlat +datum=WGS84 +no_defs") %>%
+                terra::flip(direction = "vertical")%>%
+                terra::project(y = prj) %>% 
+                terra::crop(study)
+
 
 sst.df <- as.data.frame(sst.r, xy = TRUE) %>% 
   drop_na()
@@ -629,12 +607,13 @@ ggplot() +
 
 test <- aperm(sst.array, c(2, 1, 3))
 # Make a raster brick of all values 
-sst_brick <- brick(test, xmn = min(lon), xmx = max(lon), 
-                   ymn = min(lat), ymx = max(lat), 
-                   crs = CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) %>% 
-  flip(direction = "y") %>%
-  raster::projectRaster(crs = prj) %>% 
-  raster::crop(study)
+sst_brick <- rast(test,extent=ext(min(lon), max(lon), 
+                                   min(lat), max(lat)),
+                   crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs") %>% 
+  terra::flip(direction = "vertical")%>%
+  terra::project(y = prj) %>% 
+  terra::crop(study)
+
 
 # Convert date from seconds since 01/01/1970 to yyyy-mm-dd format
 t2 <- as.POSIXct("1981-01-01 00:00") + as.difftime(t, units = "secs")
@@ -642,26 +621,24 @@ t2 <- format(t2, "%G-W%V")
 
 # Name raster layers after the date that they portray
 names(sst_brick) <- t2
-sst_brick <- raster::setZ(sst_brick, t2)
-
 
 # Calculate the change between any two layers
 # tempchange <- sst_brick[[2]]-sst_brick[[1]]
 # tempchange
 
 # Get the date from the names of the layers and extract the month
-sst_week <- zApply(sst_brick, by = t2, fun = mean)
+sst_week <- terra::tapp(sst_brick, index = t2, fun = mean)
 
 # animate(sst_week, pause=0.5, n=1)
 
 sst <- sst_week
-# writeRaster(sst, "../Data_Processed/sst_weekly.tif", options = "INTERLEAVE=BAND", overwrite = T)
-# saveRDS(sst, "../Data_Processed/sst_weekly.rds")
+
+saveRDS(sst, "../Data_Processed/sst_weekly.rds")
 # save(sst, file = "../Data_Processed/sst_weekly.rda")
 
-# writeRaster(sst_week, "../Data_Processed/sst_weekly.nc",
-#       overwrite = TRUE, format = "CDF",
-#       varname = "analysed_sst", varunit = "m/s",
-#       longname = "Sea Surface Temperature -- raster brick to netCDF",
-#       xname = "lon", yname = "lat", zname = "time",
-#       zunit = "numeric")
+terra::writeCDF(sst_week, "../Data_Processed/sst_weekly.nc",
+       overwrite = TRUE, 
+       varname = "analysed_sst", 
+       unit = "m/s",
+       longname = "Sea Surface Temperature -- raster brick to netCDF",
+        zname = "time")
