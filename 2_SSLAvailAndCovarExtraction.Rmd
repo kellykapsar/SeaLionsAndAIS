@@ -5,7 +5,7 @@ date: "10/1/2021"
 output: html_document
 ---
 
-```{r load libraries}
+```{r load libraries, message=F, warning=F}
 
 library(tidyr)
 library(dplyr)

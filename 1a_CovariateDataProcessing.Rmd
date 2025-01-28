@@ -82,7 +82,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
+writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
 
 ```
 
@@ -104,7 +104,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-# writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif", overwrite=TRUE)
+writeRaster(landmask,"../Data_Processed/Landmask_GEBCO.tif", overwrite=TRUE)
 ```
 
 ## Slope
@@ -178,7 +178,7 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 
 # Save output
-# writeRaster(distland2, "../Data_Processed/DistLand.tif")
+writeRaster(distland2, "../Data_Processed/DistLand.tif")
 ```
 
 ## Distance to shelf break
@@ -228,7 +228,7 @@ ggplot() +
 ```{r ais, warning=FALSE}
 start <- proc.time()
 # Boundary for AIS data acquisition
-aisbound_sf <- st_read("../Data_Raw/AIS_Bounds_FromAP/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
+aisbound_sf <- st_read("../Data_Raw/ais_reshape.shp") %>% st_transform(prj) %>% st_crop(study)
 aisbound_sp <- aisbound_sf %>% as("Spatial")
 
 # Import raster, reproject to 4336, and crop to study area
@@ -276,22 +276,22 @@ fishingbrick <- raster::setZ(fishingbrick, yearmon)
 
 # Save raster bricks as netcdf files 
 # Save output file
-# writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
-#               overwrite=TRUE, format="CDF",
-#               varname="intensity", varunit="km",
-#               longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-#               xname="lon",   yname="lat",zname="time",
-#               zunit="numeric")
-# 
-# saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
-# 
-# writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
-#               overwrite=TRUE, format="CDF",
-#               varname="intensity", varunit="km",
-#               longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
-#               zname="time", xname="lon",   yname="lat")
-# 
-# saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
+writeRaster(shippingbrick, "../Data_Processed/AIS_AllOther.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              xname="lon",   yname="lat",zname="time",
+              zunit="numeric")
+
+saveRDS(shippingbrick, "../Data_Processed/AIS_AllOther.rds")
+
+writeRaster(fishingbrick, "../Data_Processed/AIS_Fishing.nc",
+              overwrite=TRUE, format="CDF",
+              varname="intensity", varunit="km",
+              longname="Shipping intensity (km travelled per cell) -- raster brick to netCDF",
+              zname="time", xname="lon",   yname="lat")
+
+saveRDS(fishingbrick, "../Data_Processed/AIS_Fishing.rds")
 
 # Plot results
 # fish.df <- as.data.frame(fishingbrick[[1]], xy=TRUE)  %>% drop_na()
@@ -322,7 +322,7 @@ ships <- lapply(shiplist, function(x){st_read(paste0("../Data_Raw/AIS_SSLWeeklyS
 ships <- do.call(rbind, ships) # Combine all ships into one sf object
 ships <- ships %>% mutate(year = substr(AIS_ID, 11, 14)) # Extract year from AIS_ID
 
-st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp")
+st_write(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.shp", append=F)
 saveRDS(ships, "../Data_Raw/AIS_SSLWeeklySubset/Vector/EPSG32605/AllVessels_Reprojected.rds")
 
 ```
@@ -440,60 +440,6 @@ save(wind, file="../Data_Processed/wind_weekly.rda")
               # longname="Wind Speed -- raster brick to netCDF",
               # xname="lon",   yname="lat",zname="time",
               # zunit="numeric")
-```
-
-Test to make sure that the netcdf file saved correctly. 
-
-```{r testing netcdf file save, eval=FALSE}
-
-test <-nc_open("../Data_Processed/wind_weekly.nc")
-
-# Save metadata to a text file
-{
-  sink('../Data_Processed/WIND_Monthly.txt')
-  print(test)
-  sink()
-}
-
-# Read lat lon and time for each observation
-lon <- ncvar_get(test, "lon")
-lat <- ncvar_get(test, "lat", verbose = F)
-t <- ncvar_get(test, "time")
-
-head(lon)
-
-# Read in data from the wind variable and verify the dimensions of the array
-test.array <- ncvar_get(test, "wind_speed") # 3dim array
-dim(test.array)
-
-# Identify fill value and replace with NA
-fillvalue <- ncatt_get(test, "wind_speed","_FillValue")
-fillvalue
-
-test.array[test.array == fillvalue$value] <- NA
-
-nc_close(test)
-
-test_brick <- brick(test.array, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), 
-                crs=prj) 
-
-plot(test_brick[[1]])
-
-
-test.df <- as.data.frame(test_brick[[1]], xy=TRUE)
-colnames(test.df) <- c("x","y","windspeed")
-
-plot(test.r)
-
-
-# Map of study area with wind data
-ggplot() +
-  geom_sf(data=basemap.crop, fill="gray", color="black", lwd=0.5) +
-  geom_raster(data=test.df, aes(x=x, y=y, fill=windspeed), alpha=0.9) +
-  scale_fill_gradient2() +
-  geom_sf(data=study, fill=NA, color="red")
-
-
 ```
 
 ## Sea Surface Temperature
