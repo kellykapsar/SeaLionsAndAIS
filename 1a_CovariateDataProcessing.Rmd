@@ -82,7 +82,7 @@ ggplot() +
   scale_fill_gradient2() +
   geom_sf(data=study, fill=NA, color="red")
 
-writeRaster(bathy, "../Data_Processed/Bathymetry.tif")
+writeRaster(bathy, "../Data_Processed/Bathymetry.tif", overwrite=TRUE)
 
 ```
 
@@ -125,7 +125,7 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 
 saveRDS(slope, "../Data_Processed/slope.rds")
-writeRaster(slope, "../Data_Processed/slope.tif")
+writeRaster(slope, "../Data_Processed/slope.tif", overwrite=TRUE)
 ```
 
 ## Distance to land 
