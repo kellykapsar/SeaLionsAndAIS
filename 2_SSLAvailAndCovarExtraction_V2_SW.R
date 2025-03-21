@@ -61,28 +61,28 @@ trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>%
 
 
 # Read in covariates 
-# landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
-# dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-dist_500m <- dist500m
-# depth <- raster("../Data_Processed/Bathymetry.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-depth <- bathy
-# dist_land <- raster("../Data_Processed/DistLand.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-dist_land <- distland2
-# slope <- raster("../Data_Processed/slope.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-# ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
-ship <- shippingbrick
-# fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
-fish <- fishingbrick
-# sst <- raster("../Data_Processed/sst_weekly.tif")
-# wind <- raster("../Data_Processed/wind_weekly.tif")
+landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
+dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# dist_500m <- dist500m
+depth <- raster("../Data_Processed/Bathymetry.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# depth <- bathy
+dist_land <- raster("../Data_Processed/DistLand.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# dist_land <- distland2
+slope <- raster("../Data_Processed/slope.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+ship <- readRDS("../Data_Processed/AIS_AllOther.rds")
+# ship <- shippingbrick
+fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
+# fish <- fishingbrick
+sst <- raster("../Data_Processed/sst_weekly.tif")
+wind <- raster("../Data_Processed/wind_weekly.tif")
 
 # Create a list of all covariate files and check resolution 
-# raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
-# rasres <- lapply(raslist, function(x) res(x)/1000)
+raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
+rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Remove unnecessary objects loaded from source script in the environment
 rm(aisbound_sf, aisbound_sp, basemap, basemap.crop, bathy, bathy2, bathyDf,
@@ -347,10 +347,18 @@ cowplot::plot_grid(plotlist = box_plots) %>% ggsave("../Figures/ssl50_boxplots_c
 # write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
 
 # Extract week of year as date from original data
-ssl_dates <- ssl %>% 
-  st_drop_geometry() %>% 
-  group_by(weeklyhr_id) %>% 
-  summarize(date = min(date)) %>% 
+# ssl_dates <- ssl %>% 
+#   st_drop_geometry() %>% 
+#   group_by(weeklyhr_id) %>% 
+#   summarize(date = min(date)) %>% 
+#   # Add year and week of year columns
+#   mutate(year = lubridate::year(date),
+#          weekofyear = lubridate::isoweek(date))
+
+ssl_dates <- ssl_simple %>%
+  st_drop_geometry() %>%
+  group_by(weeklyhr_id) %>%
+  summarize(date = min(t_)) %>%
   # Add year and week of year columns
   mutate(year = lubridate::year(date),
          weekofyear = lubridate::isoweek(date))
