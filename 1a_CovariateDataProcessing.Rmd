@@ -178,7 +178,7 @@ ggplot() +
   geom_sf(data=study, fill=NA, color="red")
 
 # Save output
-writeRaster(distland2, "../Data_Processed/DistLand.tif")
+writeRaster(distland2, "../Data_Processed/DistLand.tif", overwrite=TRUE)
 ```
 
 ## Distance to shelf break
