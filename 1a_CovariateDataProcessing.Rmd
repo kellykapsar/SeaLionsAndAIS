@@ -210,7 +210,7 @@ dist500m <- gridDistance(bathy2, origin = 2,
 dist500m <- dist500m # %>% raster::crop(study) %>% raster::mask(study)
 
 # Save results
-writeRaster(dist500m, "../Data_Processed/Dist500m.tif")
+writeRaster(dist500m, "../Data_Processed/Dist500m.tif", overwrite=TRUE)
 
 
 # Plot results
