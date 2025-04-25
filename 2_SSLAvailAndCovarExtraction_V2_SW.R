@@ -61,37 +61,39 @@ trk <- read_rds("../Data_Processed/ssl_steps_resampled.rds") %>%
 
 
 # Read in covariates 
-# landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
-# dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-dist_500m <- dist500m
-# depth <- raster("../Data_Processed/Bathymetry.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-depth <- bathy
-# dist_land <- raster("../Data_Processed/DistLand.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-dist_land <- distland2
-# slope <- raster("../Data_Processed/slope.tif") %>%
-#   raster::mask(landmask, maskvalue = 1)
-# ship <- readRDS("../Data_Processed/AIS_AllOther.rds") 
-ship <- shippingbrick
-# fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
-fish <- fishingbrick
+landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
+dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# dist_500m <- dist500m
+depth <- raster("../Data_Processed/Bathymetry.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# depth <- bathy
+dist_land <- raster("../Data_Processed/DistLand.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+# dist_land <- distland2
+slope <- raster("../Data_Processed/slope.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+ship <- readRDS("../Data_Processed/AIS_AllOther.rds")
+# ship <- shippingbrick
+fish <- readRDS("../Data_Processed/AIS_Fishing.rds")
+# fish <- fishingbrick
 # sst <- raster("../Data_Processed/sst_weekly.tif")
 # wind <- raster("../Data_Processed/wind_weekly.tif")
+sst <- readRDS("../Data_Processed/sst_weekly.rds")
+wind <- readRDS("../Data_Processed/wind_weekly.rds")
 
 # Create a list of all covariate files and check resolution 
 # raslist <- list(depth, dist_land, dist_500m, slope, ship, fish, sst, wind)
 # rasres <- lapply(raslist, function(x) res(x)/1000)
 
 # Remove unnecessary objects loaded from source script in the environment
-rm(aisbound_sf, aisbound_sp, basemap, basemap.crop, bathy, bathy2, bathyDf,
-   cargobrick, cargoras, deep, dist500m, dist500m.df, distland2, distland2.df,
-   fillvalue, fishingbrick, fishingras, land, landmaskDf, otherbrick, otherras,
-   shallow, shippingbrick, ships, slopeDf, sst_brick, sst_week, sst.df, sst.r,
-   sst.slice, tankerbrick, tankerras, water, wind_brick, wind_week, wind.df,
-   wind.r, wind.slice, cargolist, fishinglist, otherlist, shiplist, sst.array,
-   start, lat, lon, studylatlon, t, t2)
+# rm(aisbound_sf, aisbound_sp, basemap, basemap.crop, bathy, bathy2, bathyDf,
+#    cargobrick, cargoras, deep, dist500m, dist500m.df, distland2, distland2.df,
+#    fillvalue, fishingbrick, fishingras, land, landmaskDf, otherbrick, otherras,
+#    shallow, shippingbrick, ships, slopeDf, sst_brick, sst_week, sst.df, sst.r,
+#    sst.slice, tankerbrick, tankerras, water, wind_brick, wind_week, wind.df,
+#    wind.r, wind.slice, cargolist, fishinglist, otherlist, shiplist, sst.array,
+#    start, lat, lon, studylatlon, t, t2)
 
 
 # Weekly KDE home ranges --------------------------------------------------
@@ -200,26 +202,26 @@ n.rep <- 100
 
 # The model run itself is done in a piped chain, where we create the track object, create the random points, extract covariate values, scale our covariates, and run the model. We will scale our covariates in the model state later on. This takes approximately 5 hours to run.
 
-wb.sim <- tibble(
-  n.pts = rep(n.pts, n.rep),
-  frac = rep(n.frac, n.rep),
-  result = map(
-    n.pts, ~
-      trk %>% 
-      random_points(n = .x) %>%
-      mutate(w = ifelse(case_ == T, 
-                        1, 
-                        5000)) %>% 
-      extract_covariates(staticcovars) %>%
-      mutate(dist_land = scale(DistLand),
-             dist_500m = scale(Dist500m),
-             depth = scale(Bathymetry),
-             slope = scale(slope)) %>%
-      glm(case_ ~ dist_land + dist_500m + depth + slope,
-          data = ., 
-          weights = w,
-          family = binomial(link = "logit")) %>%
-      broom::tidy()))
+# wb.sim <- tibble(
+#   n.pts = rep(n.pts, n.rep),
+#   frac = rep(n.frac, n.rep),
+#   result = map(
+#     n.pts, ~
+#       trk %>% 
+#       random_points(n = .x) %>%
+#       mutate(w = ifelse(case_ == T, 
+#                         1, 
+#                         5000)) %>% 
+#       extract_covariates(staticcovars) %>%
+#       mutate(dist_land = scale(DistLand),
+#              dist_500m = scale(Dist500m),
+#              depth = scale(Bathymetry),
+#              slope = scale(slope)) %>%
+#       glm(case_ ~ dist_land + dist_500m + depth + slope,
+#           data = ., 
+#           weights = w,
+#           family = binomial(link = "logit")) %>%
+#       broom::tidy()))
 
 # Good idea to save this so you have it and don't need to rerun in later.
 # write_rds(wb.sim, file = "../Data_Processed/ssl_sa_sim.rds")
@@ -292,7 +294,7 @@ split_trk <- split(ssl_simple, ssl_simple$weeklyhr_id)
 ssl_rsf_50 <- map_dfr(split_trk, generate_random_points)
 
 # Save rds
-# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points.rds")
+write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points.rds")
 
 # Read rds
 ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_random_points.rds")
@@ -344,7 +346,7 @@ box_plots <- map(vars, ~
 cowplot::plot_grid(plotlist = box_plots) %>% ggsave("../Figures/ssl50_boxplots_covar_sensitivity_analysis_20240805.png", plot = ., width = 10, height = 8)
 
 # Save rds
-# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
+write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_random_points_static.rds")
 
 # Extract week of year as date from original data
 ssl_dates <- ssl %>% 
@@ -361,7 +363,7 @@ ssl_rsf_50 <- ssl_rsf_50 %>%
             by = c("id" = "weeklyhr_id"))
 
 # Save rds
-# write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
+write_rds(ssl_rsf_50, "../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
 
 # Read in rds
 ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_points_date_weeks.rds")
@@ -406,6 +408,24 @@ test <- ssl_rsf_50_sf[100000:100010, ]
 # Test individual parts of function 
 xy <- st_coordinates(test)
 xy
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Get time slices from covariates
 t_covar <- raster::getZ(wind) # YYYY-WWW

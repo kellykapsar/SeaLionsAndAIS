@@ -400,7 +400,7 @@ write.csv(ptcts, "../Data_Processed/SSL_PtCts.csv")
 watersealis$choice_id <- 1:length(watersealis$deploy_id)
 
 # Save clean data output 
-saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
+saveRDS(watersealis, "../Data_Processed/watersealis.rds")
 
 # amt: creating tracks for all sea lions ----------------------------------
 
@@ -409,7 +409,7 @@ saveRDS(watersealis, "../Data_Processed/Telemetry/watersealis.rds")
 library(amt)
 
 # Read in watersealis data
-watersealis <- read_rds("../Data_Processed/Telemetry/watersealis.rds")
+watersealis <- read_rds("../Data_Processed/watersealis.rds")
 
 # Referencing Animal Space Use and Behavior SMSC with Dr. Joe Kowalski -----
 seali_data <- watersealis %>% 
