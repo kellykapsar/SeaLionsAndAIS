@@ -15,6 +15,9 @@ library(leaflet)
 library(RColorBrewer)
 library(tidyverse)
 
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::lag)
+
 
 # Study area boundaries ---------------------------------------------------
 
@@ -435,7 +438,7 @@ seali_tracks <- seali_data %>%
   
 # Nest data except for deploy_id
 seali_tracks2 <- seali_tracks %>% 
-  nest(-deploy_id)
+  nest(data = -"deploy_id")
 
 # Get sampling rate for each animal
 sr_all <- seali_tracks2 %>% 
@@ -463,8 +466,10 @@ seali_tracks %>%
   summarize(count = n()) %>% 
   ggplot(aes(x = date,
              y = count)) +
-  geom_col() +
-  ylim(c(0, 20))
+  geom_col()
+
+# Save data of sea lion tracks for all animals
+saveRDS(seali_tracks2, "../Data_Processed/seali_tracks2.rds")
 
 
 # amt: resample tracks ----------------------------------------------------
@@ -473,7 +478,7 @@ seali_tracks %>%
 # Resample track information to regularized sampling interval
 
 ssl_steps <- seali_tracks2 %>% 
-  # Apply a function to x (each item in nested 'data' column)
+  # Apply a function to x (each item in nested 'data' column). Add new column for steps and create step bursts for each animal.
   mutate(steps = map(data, function(x)
     # Tags were programmed to transmit every 15 min. Median sr was about 30 min so we'll resample to 30.
     x %>% track_resample(rate = minutes(30),
@@ -482,6 +487,24 @@ ssl_steps <- seali_tracks2 %>%
       filter_min_n_burst(min_n = 3) %>% 
       # Keep attribute associated with the end of the step
       steps_by_burst(keep_cols = "end")))
+
+# Save as rds
+saveRDS(ssl_steps, "../Data_Processed/ssl_steps_resampled.rds")
+
+
+# Save just the resampled track for use in later scripts, without filtering by size of the bursts
+ssl_ak_tracks2_rs30 <- seali_tracks2 %>% 
+  # Apply a function to x
+  mutate(track_rs = map(data, function(x)
+    x %>% track_resample(rate = minutes(30),
+                         tolerance = minutes(3)))) %>% 
+      # Select only id of interest and new resampled track information
+      select(deploy_id, track_rs) %>% 
+      # Unnest resampled track data
+      unnest(cols = track_rs) %>% 
+      # Write to an rds
+      write_rds("../Data_Processed/ssl_ak_30min.rds") 
+
 
 str(ssl_steps, width = 80, strict_width = "no", nchar.max = 80, give.attr = FALSE)
 
@@ -515,6 +538,5 @@ ssl_steps %>%
   xlim(c(0, 5000)) +
   theme_light()
 
-# Save data
-saveRDS(seali_tracks, "../Data_Processed/seali_tracks.rds")
-saveRDS(ssl_steps, "../Data_Processed/ssl_steps_resampled.rds")
+
+
