@@ -155,4 +155,19 @@ anglePar0_3 <- c(angleMean0_3, kappa0_3)
 
 # Fit Hidden Markov Models - Model Fitting --------------------------------
 
+# When fitting models we can provide a formula with a covariate to inform transition from one state to the next. Specify how many behavioral states we want the model to identify with "nbStates = 2", which indicates we want to fit a two-state model to the data. Next, define the distributions that we want to use to characterize both the step lengths (stepDist = "gamma") and turning angles (angleDist = "vm").
 
+# Distribution options for step length are: gamma (“gamma”), Weibull (“weibull”), exponential (“exp”) and log-normal (“lnorm”).
+
+# For turning angle we can choose: von Mises (“vm”) and wrapped-Cauchy (“wrpcauchy”). It is also possible to specify angleDist = "none", if the angles are not modeled.
+
+# Fit a Null model with two behavioral states but no covariates influencing transitions from one state to the next.
+ssl_m_null <- fitHMM(data = ssl_move, 
+                      nbStates = 2, # number of behavioral states
+                      stepPar0 = stepPar0, 
+                      anglePar0 = anglePar0, 
+                      stepDist = "gamma",
+                      angleDist = "vm",
+                      formula = ~ 1) # intercept only
+
+ssl_m_null
