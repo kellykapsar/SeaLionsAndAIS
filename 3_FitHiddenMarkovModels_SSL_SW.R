@@ -161,7 +161,7 @@ anglePar0_3 <- c(angleMean0_3, kappa0_3)
 
 # For turning angle we can choose: von Mises (“vm”) and wrapped-Cauchy (“wrpcauchy”). It is also possible to specify angleDist = "none", if the angles are not modeled.
 
-# Fit a Null model with two behavioral states but no covariates influencing transitions from one state to the next.
+# Fit a Null model with two behavioral states but no covariates influencing transitions from one state to the next. Formula has an intercept only (~ 1) to follow standard regression formula specification.
 ssl_m_null <- fitHMM(data = ssl_move, 
                       nbStates = 2, # number of behavioral states
                       stepPar0 = stepPar0, 
@@ -171,3 +171,7 @@ ssl_m_null <- fitHMM(data = ssl_move,
                       formula = ~ 1) # intercept only
 
 ssl_m_null
+
+# State 1 has a smaller mean step length than state 2 around 105m (may vary with each run), with mean for state 2 around 491. The zero-mass values are both very small since there were not that many zero step length values.
+
+# The concentration represents a sort of variance around the mean turning angles. Both states have a mean turning angle close to 0. A relative turn angle of zero means continued movement in the same direction.
