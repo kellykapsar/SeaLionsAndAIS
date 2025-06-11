@@ -16,6 +16,20 @@ library(conflicted)
 conflict_prefer("select", "dplyr")
 conflict_prefer("filter", "dplyr")
 
+# Read in covariates 
+landmask <- raster("../Data_Processed/Landmask_GEBCO.tif")
+dist_500m <- raster("../Data_Processed/Dist500m.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+bathy <- raster("../Data_Processed/Bathymetry.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+dist_land <- raster("../Data_Processed/DistLand.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+slope <- raster("../Data_Processed/slope.tif") %>%
+  raster::mask(landmask, maskvalue = 1)
+
+# Create a list of static covariates 
+staticcovars <- raster::stack(dist_land, dist_500m, bathy, slope)
+
 
 # data import and formatting --------------------------------------------
 
@@ -23,7 +37,13 @@ conflict_prefer("filter", "dplyr")
 
 # Bring in cleaned SSL data that has been resampled to 30 min time steps using the amt package (from script 1b_SSLDataProcessing_V2_SW.R)
 
-read_rds("../Data_Processed/ssl_ak_30min.rds")
+raw <- read_rds("../Data_Processed/ssl_ak_30min.rds")
+
+# Here we extract the value of each raster file for each tracking location. The extract_covariates() function in amt calls the terra::extract function.
+ssl_data_cov <- raw %>% 
+  extract_covariates(staticcovars) %>% 
+  # Remove points that are on land
+  filter(!is.na(Bathymetry))
 
 # In terms of data prep...there are a few keys processing/formatting steps. 
 
@@ -39,14 +59,18 @@ read_rds("../Data_Processed/ssl_ak_30min.rds")
 
 # Here I will assign the data to an object and perform all the necessary reformatting. I'm converting to a data frame here because this is actually a track object from amt since we used that package for resampling. I'm also creating a column for hour of the day, which we will use below for modeling.
 
-ssl_data <- read_rds("../Data_Processed/ssl_ak_30min.rds") %>%
+ssl_data <- ssl_data_cov %>%
   as.data.frame() %>% 
   arrange(deploy_id, t_) %>%
   select(x_,
          y_,
          t_,
          type,
-         ID = deploy_id) %>% 
+         ID = deploy_id,
+         slope,
+         Dist500m,
+         DistLand,
+         Bathymetry) %>% 
   
   # create column for hour of the day and divide UTMs by 1000 to get km units 
   mutate(hour = lubridate::hour(t_),
@@ -277,3 +301,15 @@ ssl_data %>%
   labs(x = "x",
        y = "y",
        title = "SSL2019785KOD")
+
+
+# Model Comparisons and Covariate Testing ---------------------------------
+
+# Look at the influence of a specific covariate
+ssl_m_bathy <- fitHMM(data = ssl_move,
+                      nbStates = 2,
+                      stepPar0 = stepPar0,
+                      anglePar0 = anglePar0,
+                      formula = ~ bathy) 
+# Read rds
+ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_random_points.rds")
