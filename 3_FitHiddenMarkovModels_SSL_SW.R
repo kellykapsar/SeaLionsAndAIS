@@ -310,6 +310,4 @@ ssl_m_bathy <- fitHMM(data = ssl_move,
                       nbStates = 2,
                       stepPar0 = stepPar0,
                       anglePar0 = anglePar0,
-                      formula = ~ bathy) 
-# Read rds
-ssl_rsf_50 <- read_rds("../Data_Processed/ssl_rsf_50_random_points.rds")
+                      formula = ~ Bathymetry)
