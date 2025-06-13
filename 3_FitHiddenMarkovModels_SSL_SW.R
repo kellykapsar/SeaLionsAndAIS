@@ -1,7 +1,7 @@
 # Title: 1c_SSL_HMM_draft
 # Author: Sydney Waloven
 # Date: 2025-05-22
-# Description: Script for determining behavioral states of the SSL data using a Hidden Markov Model
+# Description: Script for determining behavioral states of the SSL data using a Hidden Markov Model. Adapted from "Hidden Markov Models with moveHMM exercise developed by Joe Kolowski at Smithsonian-Mason School of Conservation"
 
 
 # setup -------------------------------------------------------------------
@@ -372,3 +372,87 @@ plot(ssl_m_tod_3,
 plotStationary(ssl_m_tod_3)
 
 
+# Selection of Locations Based on State -----------------------------------
+
+# This is how to remove locations associated with a certain behavioral state. This can be helpful if one is trying to create home ranges for the resident/foraging behavior of an animal, but long-distance travel between ranges is causing unreasonable resident range sizes. In the 3-state model, state 3 represented directional, long range movements. We'll remove these from our new dataset.
+
+# First we assign state information to each location while preserving the rest of the data. Then multiply coordinates by 1000 to return to original grid values. We can work with the original dataset since we don't need the step and angle information.
+
+ssl_data_foraging <- ssl_data %>% 
+  
+  # add predicted state information to initial data frame
+  mutate(state = factor(ssl_states_3tod),
+         x_ = x_ * 1000,
+         y_ = y_ * 1000) %>% 
+  
+  # remove hour column
+  select(-hour) %>% 
+  
+  # filter data to only states 1 and 2
+  filter(state %in% c(1, 2))
+
+# SSL2019786KOD had a few focal areas of use, with substantial travel in between.
+
+# Plot all data for SSL2019786KOD
+kod_all <- ssl_data %>% 
+  mutate(state = as.factor(ssl_states_3tod)) %>%
+  filter(ID == "SSL2019786KOD") %>% 
+  ggplot(aes(x = x_*1000,
+             y = y_*1000,
+             col = state,
+             fill = state)) +
+  geom_path(alpha = 0.5) +
+  geom_point(shape = 21,
+             alpha = 0.8,
+             col = "black") +
+  scale_color_manual(values = c("orange",
+                                "cornflowerblue",
+                                "darkolivegreen")) +
+  scale_fill_manual(values = c("orange",
+                               "cornflowerblue",
+                               "darkolivegreen")) +
+  theme_void() +
+  labs(x = "x",
+       y = "y",
+       title = "SSL2019786KOD - all data")
+
+kod_all
+
+# Plot this individual without the "travel" data now
+kod_sub <- ssl_data_foraging %>% 
+  filter(ID == "SSL2019786KOD") %>% 
+  ggplot(aes(x = x_,
+             y = y_,
+             col = state,
+             fill = state)) +
+  # geom_path(alpha = 0.5) +
+  geom_point(shape = 21,
+             alpha = 0.8,
+             col = "black") +
+  scale_color_manual(values = c("orange",
+                                "cornflowerblue",
+                                "darkolivegreen")) +
+  scale_fill_manual(values = c("orange",
+                               "cornflowerblue",
+                               "darkolivegreen")) +
+  theme_void() +
+  labs(x = "x",
+       y = "y",
+       title = "SSL2019786KOD - foraging state only")
+
+kod_sub
+
+# Plot these next to each other
+two_plots <- cowplot::plot_grid(kod_all,
+                                kod_sub,
+                                ncol = 2,
+                                rel_widths = c(1, 1)
+)
+
+two_plots
+
+# ggsave(plot = two_plots,
+#        filename = "..Figures/ssl2019786kod_2maps.tiff",
+#        units = "in",
+#        width = 6.5,
+#        height = 4)
