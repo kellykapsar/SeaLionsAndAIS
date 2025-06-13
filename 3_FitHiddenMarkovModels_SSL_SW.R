@@ -311,3 +311,64 @@ ssl_m_bathy <- fitHMM(data = ssl_move,
                       stepPar0 = stepPar0,
                       anglePar0 = anglePar0,
                       formula = ~ Bathymetry)
+
+# Canned function to plot the impacts of the covariate
+plotStationary(ssl_m_bathy,
+               plotCI = TRUE)
+
+# From this plot we can conclude that the probability of transitioning from state 1 to state 2 exponentially increases as bathymetry decreases.
+
+
+# HMM with day effect -----------------------------------------------------
+
+ssl_m_tod <- fitHMM(data = ssl_move,
+                    nbStates = 2,
+                    stepPar0 = stepPar0,
+                    anglePar0 = anglePar0,
+                    formula = ~ cos(2*pi*hour/24) +
+                      sin(2*pi*hour/24))
+
+ssl_m_tod
+
+# Look at the impact of the time of day
+plotStationary(ssl_m_tod,
+               plotCI = T)
+# Looks like there is a cyclical pattern to the probability for what state the animals are in depending on the time of day
+
+# Use AIC to check which of these three models is a better fit to the data
+# Let's now see which of these three models is a better fit to the data
+AIC(ssl_m_null,
+    ssl_m_bathy,
+    ssl_m_tod)
+# The bathymetry model is most preferred but there is also some evidence that time of day also plays a role in determining behavioral state.
+
+# Time to test whether there is evidence that a three state model is favored. 
+ssl_m_tod_3 <- fitHMM(data = ssl_move,
+                      nbStates = 3,
+                      stepPar0 = stepPar0_3,
+                      anglePar0 = anglePar0_3,
+                      stepDist = "gamma",
+                      angleDist = "vm",
+                      formula = ~ cos(2*pi*hour/24) +
+                        sin(2*pi*hour/24))
+
+AIC(ssl_m_tod, ssl_m_tod_3)
+# There is substantial evidence that the 3 state model is better than the 2 state model.
+
+# Orange state 1 has a very low mean step length relative to the other two states with a mean around 700m and a turning angle mean near 0. This could indicate state 1 as a localized or encamped state. Blue state 2 has a much greater step length mean of around 3300m but with a turning angle near 0 as well which could represent more intermediate directional movement (exploratory or to nearby resource patches). State 3 appears to represent large scale directional movements with a mean step length of about 6300m and a turning angle near 0.
+
+# Look at how much time animals spend in each state
+ssl_states_3tod <- viterbi(ssl_m_tod_3)
+
+prop.table(table(ssl_states_3tod))
+
+# Across all individuals, state 2 is the most common followed by state 1 and then state 3. 
+
+# Plot
+plot(ssl_m_tod_3,
+     ask = F)
+
+# Look at the time of day influence on each state probability
+plotStationary(ssl_m_tod_3)
+
+
