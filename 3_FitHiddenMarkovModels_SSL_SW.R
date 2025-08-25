@@ -456,3 +456,8 @@ two_plots
 #        units = "in",
 #        width = 6.5,
 #        height = 4)
+
+
+# HMM with Covariates -----------------------------------------------------
+
+
