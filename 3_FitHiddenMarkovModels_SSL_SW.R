@@ -8,8 +8,9 @@
 
 rm(list = ls())
 library(moveHMM)
+library(amt)
 library(ggmap)
-
+library(raster)
 library(tidyverse)
 
 library(conflicted)
@@ -306,6 +307,9 @@ ssl_data %>%
 # Model Comparisons and Covariate Testing ---------------------------------
 
 # Look at the influence of a specific covariate
+
+## Bathymetry -----
+
 ssl_m_bathy <- fitHMM(data = ssl_move,
                       nbStates = 2,
                       stepPar0 = stepPar0,
@@ -318,6 +322,78 @@ plotStationary(ssl_m_bathy,
 
 # From this plot we can conclude that the probability of transitioning from state 1 to state 2 exponentially increases as bathymetry decreases.
 
+## Distance to land -----
+
+ssl_m_dist_land <- fitHMM(data = ssl_move,
+                          nbStates = 2,
+                          stepPar0 = stepPar0,
+                          anglePar0 = anglePar0,
+                          formula = ~ DistLand)
+
+# Plot impacts of covariate
+plotStationary(ssl_m_dist_land,
+               plotCI = TRUE)
+# The probability of transitioning from state 1 to state 2 exponentially increases as the distance from land increases.
+
+## Distance 500m -----
+
+ssl_m_dist500 <- fitHMM(data = ssl_move,
+                        nbStates = 2,
+                        stepPar0 = stepPar0,
+                        anglePar0 = anglePar0,
+                        formula = ~ Dist500m)
+
+# Plot impacts of covariate
+plotStationary(ssl_m_dist500,
+               plotCI = TRUE)
+# No relationship??
+
+## Slope -----
+
+ssl_m_slope <- fitHMM(data = ssl_move,
+                      nbStates = 2,
+                      stepPar0 = stepPar0,
+                      anglePar0 = anglePar0,
+                      formula = ~ slope)
+
+# Plot impacts of covariate
+plotStationary(ssl_m_slope,
+               plotCI = TRUE)
+
+# Use AIC to check which of these covariate models is a better fit to the data
+AIC(ssl_m_null,
+    ssl_m_bathy,
+    ssl_m_dist_land,
+    ssl_m_dist500,
+    ssl_m_slope)
+# Best model fit is the ssl_m_dist_land followed by the ssl_m_bathy and slope
+
+## Interaction effects -----
+
+# Test whether the effect of slope depends on depth and include distance to land
+ssl_m_multi <- fitHMM(data = ssl_move,
+                      nbStates = 2,
+                      stepPar0 = stepPar0,
+                      anglePar0 = anglePar0,
+                      formula = ~ DistLand + slope*Bathymetry)
+
+plotStationary(ssl_m_multi,
+               plotCI = TRUE)
+
+AIC(ssl_m_null,
+    ssl_m_bathy,
+    ssl_m_dist_land,
+    ssl_m_slope,
+    ssl_m_multi)
+
+# Test whether the model fits better with no interactions between the covariates
+ssl_m_multi2 <- fitHMM(data = ssl_move,
+                      nbStates = 2,
+                      stepPar0 = stepPar0,
+                      anglePar0 = anglePar0,
+                      formula = ~ DistLand + slope + Bathymetry)
+
+# Based on the AICs the ssl_m_multi fits best 
 
 # HMM with day effect -----------------------------------------------------
 
@@ -336,13 +412,13 @@ plotStationary(ssl_m_tod,
 # Looks like there is a cyclical pattern to the probability for what state the animals are in depending on the time of day
 
 # Use AIC to check which of these three models is a better fit to the data
-# Let's now see which of these three models is a better fit to the data
 AIC(ssl_m_null,
-    ssl_m_bathy,
+    ssl_m_multi,
     ssl_m_tod)
 # The bathymetry model is most preferred but there is also some evidence that time of day also plays a role in determining behavioral state.
 
-# Time to test whether there is evidence that a three state model is favored. 
+## Testing three state model -----
+# Time to test whether there is evidence that a three state model is favored with the time of day effect. 
 ssl_m_tod_3 <- fitHMM(data = ssl_move,
                       nbStates = 3,
                       stepPar0 = stepPar0_3,
@@ -370,6 +446,18 @@ plot(ssl_m_tod_3,
 
 # Look at the time of day influence on each state probability
 plotStationary(ssl_m_tod_3)
+
+## Test whether the three state model is favored compared to ssl_m_multi -----
+ssl_m_multi_3 <- fitHMM(data = ssl_move,
+                      nbStates = 3,
+                      stepPar0 = stepPar0_3,
+                      anglePar0 = anglePar0_3,
+                      stepDist = "gamma",
+                      angleDist = "vm",
+                      formula = ~ DistLand + slope*Bathymetry)
+
+AIC(ssl_m_multi_3, ssl_m_multi)
+# Evidence that a three-state model is better.
 
 
 # Selection of Locations Based on State -----------------------------------
@@ -456,8 +544,4 @@ two_plots
 #        units = "in",
 #        width = 6.5,
 #        height = 4)
-
-
-# HMM with Covariates -----------------------------------------------------
-
 
