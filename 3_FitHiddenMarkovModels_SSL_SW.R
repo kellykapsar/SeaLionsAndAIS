@@ -459,6 +459,11 @@ ssl_m_multi_3 <- fitHMM(data = ssl_move,
 AIC(ssl_m_multi_3, ssl_m_multi)
 # Evidence that a three-state model is better.
 
+# Look at how much time animals spend in each state
+ssl_states_3mult <- viterbi(ssl_m_multi_3)
+
+prop.table(table(ssl_states_3mult))
+
 
 # Selection of Locations Based on State -----------------------------------
 
@@ -469,7 +474,7 @@ AIC(ssl_m_multi_3, ssl_m_multi)
 ssl_data_foraging <- ssl_data %>% 
   
   # add predicted state information to initial data frame
-  mutate(state = factor(ssl_states_3tod),
+  mutate(state = factor(ssl_states_3mult),
          x_ = x_ * 1000,
          y_ = y_ * 1000) %>% 
   
@@ -483,7 +488,7 @@ ssl_data_foraging <- ssl_data %>%
 
 # Plot all data for SSL2019786KOD
 kod_all <- ssl_data %>% 
-  mutate(state = as.factor(ssl_states_3tod)) %>%
+  mutate(state = as.factor(ssl_states_3mult)) %>%
   filter(ID == "SSL2019786KOD") %>% 
   ggplot(aes(x = x_*1000,
              y = y_*1000,
